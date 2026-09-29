@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Version d'AutoCAD visée : 2026 (R25.1, .NET 8) ou 2027 (R26.0, .NET 10). Les DLL ne sont pas compatibles entre les deux. -->
+    <AcadVersion Condition="'$(AcadVersion)' == ''">2026</AcadVersion>
+    <TargetFramework Condition="'$(AcadVersion)' == '2027'">net10.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(AcadVersion)' != '2027'">net8.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>McpMap3D.Plugin</RootNamespace>
+    <AssemblyName>McpMap3D.Plugin</AssemblyName>
+    <!-- Le plug-in est chargé par AutoCAD : pas de deps.json à livrer. -->
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <AcadDir Condition="'$(AcadDir)' == ''">C:\Program Files\Autodesk\AutoCAD $(AcadVersion)\</AcadDir>
+  </PropertyGroup>
+
+  <!-- Framework bureau déjà chargé par AutoCAD, requis par les signatures de ses DLL (WPF, WinForms). -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
+
+  <!-- DLL d'AutoCAD Map 3D référencées sur place, jamais copiées. -->
+  <ItemGroup>
+    <Reference Include="accoremgd">
+      <HintPath>$(AcadDir)accoremgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="acdbmgd">
+      <HintPath>$(AcadDir)acdbmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="acmgd">
+      <HintPath>$(AcadDir)acmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Représentation B-rep des solides (faces et arêtes), pour la topologie, les congés et les chanfreins. -->
+    <Reference Include="acdbmgdbrep">
+      <HintPath>$(AcadDir)acdbmgdbrep.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ManagedMapApi">
+      <HintPath>$(AcadDir)Map\ManagedMapApi.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcMapCoordsysCoreMgd">
+      <HintPath>$(AcadDir)Map\AcMapCoordsysCoreMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Autodesk.Map.Platform">
+      <HintPath>$(AcadDir)Map\Autodesk.Map.Platform.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Plateforme géospatiale de Map (catalogue des systèmes de coordonnées), chargée par Map au démarrage. -->
+  <ItemGroup>
+    <Reference Include="OSGeo.MapGuide.Foundation">
+      <HintPath>$(AcadDir)Map\bin\GisPlatform\OSGeo.MapGuide.Foundation.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OSGeo.MapGuide.Geometry">
+      <HintPath>$(AcadDir)Map\bin\GisPlatform\OSGeo.MapGuide.Geometry.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OSGeo.MapGuide.PlatformBase">
+      <HintPath>$(AcadDir)Map\bin\GisPlatform\OSGeo.MapGuide.PlatformBase.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

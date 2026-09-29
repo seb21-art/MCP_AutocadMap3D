@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+    SchemaVersion="1.0"
+    AutodeskProduct="AutoCAD"
+    ProductType="Application"
+    Name="MCP Map 3D"
+    Description="Connecteur MCP personnel entre Claude et AutoCAD Map 3D 2026 ou 2027"
+    AppVersion="0.27.1"
+    Author="Personnel"
+    ProductCode="{D334D4D3-4870-4320-872F-C9F15505432C}"
+    UpgradeCode="{FC2B8520-F4DC-4ED4-B553-2EC4BC00CBC4}">
+
+  <CompanyDetails Name="Personnel" />
+
+  <RuntimeRequirements OS="Win64" Platform="Map|Civil3D|AutoCAD" SeriesMin="R25.1" SeriesMax="R26.0" />
+
+  <!-- Une DLL par version : AutoCAD 2027 exige .NET 10 et n'est pas compatible en binaire avec 2026. -->
+  <Components Description="Plug-in .NET 8 pour AutoCAD 2026">
+    <RuntimeRequirements OS="Win64" Platform="Map|Civil3D|AutoCAD" SeriesMin="R25.1" SeriesMax="R25.1" />
+    <ComponentEntry
+        AppName="McpMap3D"
+        AppDescription="Serveur named pipe pour le connecteur MCP"
+        ModuleName="./Contents/2026/McpMap3D.Plugin.dll"
+        LoadOnAutoCADStartup="True" />
+  </Components>
+
+  <Components Description="Plug-in .NET 10 pour AutoCAD 2027">
+    <RuntimeRequirements OS="Win64" Platform="Map|Civil3D|AutoCAD" SeriesMin="R26.0" SeriesMax="R26.0" />
+    <ComponentEntry
+        AppName="McpMap3D"
+        AppDescription="Serveur named pipe pour le connecteur MCP"
+        ModuleName="./Contents/2027/McpMap3D.Plugin.dll"
+        LoadOnAutoCADStartup="True" />
+  </Components>
+
+</ApplicationPackage>

@@ -1,0 +1,12 @@
+<Project>
+
+  <!-- Propriétés communes au plug-in et au serveur MCP. -->
+  <PropertyGroup>
+    <Version>0.27.1</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <SatelliteResourceLanguages>fr</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>
