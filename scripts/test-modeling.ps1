@@ -628,6 +628,43 @@ Remove-Item $stlPath, $satPath -ErrorAction SilentlyContinue
 Expect-Error 'export STL d''un objet non solide' 'export_stl' "{`"handles`":[`"$($square.handle)`"]}" -Read
 Expect-Error 'import d''un fichier SAT absent' 'import_sat' '{"filePath":"C:\\mcpmap3d-absent\\absent.sat"}'
 
+Write-Host "Import STEP et IGES (traducteur d'AutoCAD)"
+# Boîte de 100 × 50 × 20 mm écrite par Open CASCADE : de l'origine à (100, 50, 20).
+$fixtures = Join-Path (Split-Path $PSScriptRoot -Parent) 'tests\fixtures'
+$stepPath = Join-Path $fixtures 'boite-100x50x20.step'
+$igesPath = Join-Path $fixtures 'boite-100x50x20.igs'
+$stepDwg = Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}"
+if ($stepDwg -and (Test-Path $stepDwg.dwg)) { Pass "STEP converti en $($stepDwg.seconds) s : $($stepDwg.bytes) octets" } else { Fail 'STEP non converti' }
+if ($stepDwg) {
+    $step = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json $stepDwg.dwg),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,0,0],`"scale`":1,`"deleteDwg`":true}" -Write
+    Write-Host "  contenu : $($step.contents | ConvertTo-Json -Compress), unités $($step.sourceUnits) -> $($step.drawingUnits)"
+    if ($step.block -eq 'boite-100x50x20') { Pass 'STEP : bloc nommé d''après le fichier' } else { Fail "STEP : bloc $($step.block)" }
+    if ($step.reference.type -eq 'INSERT') { Pass 'STEP : référence de bloc insérée' } else { Fail "STEP : $($step.reference.type)" }
+    Check 'STEP : Xmin' $step.extents.min[0] 3700; Check 'STEP : Xmax' $step.extents.max[0] 3800
+    Check 'STEP : Ymax' $step.extents.max[1] 50; Check 'STEP : Zmax' $step.extents.max[2] 20
+    if (-not (Test-Path (Split-Path $stepDwg.dwg -Parent))) { Pass 'STEP : dossier de conversion supprimé' } else { Fail 'STEP : dossier de conversion resté' }
+    $stepExploded = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}").dwg),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,100,0],`"scale`":1,`"explode`":true,`"deleteDwg`":true}" -Write
+    if ($stepExploded.count -ge 1) { Pass "STEP décomposé : $($stepExploded.count) objet(s) $(@($stepExploded.objects.type) -join ', ')" } else { Fail 'STEP décomposé : aucun objet' }
+    $solid = @($stepExploded.objects | Where-Object type -eq '3DSOLID')
+    if ($solid.Count -eq 1) { Check 'STEP décomposé : volume du solide' (Props $solid[0].handle).volume 100000 1e-4 }
+    else { Write-Host "  INFO  pas de solide unique après décomposition : volume non contrôlé" -ForegroundColor Yellow }
+    Check 'STEP décomposé : Ymin' $stepExploded.extents.min[1] 100
+    $auto = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}").dwg),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,200,0],`"deleteDwg`":true}" -Write
+    if ($auto.block -eq 'boite-100x50x20_2') { Pass 'STEP : second bloc suffixé _2' } else { Fail "STEP : second bloc $($auto.block)" }
+    Write-Host "  INFO  échelle automatique $($auto.scale) ($($auto.sourceUnits) -> $($auto.drawingUnits)), Xmax $($auto.extents.max[0])"
+    if ($auto.sourceUnits -eq 'Millimeters' -and $auto.drawingUnits -eq 'Meters') { Check 'STEP : mm vers m' $auto.scale 0.001 1e-9 }
+    Expect-Error 'STEP : nom de bloc déjà pris' '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}").dwg),`"blockName`":`"boite-100x50x20`",`"deleteDwg`":true}"
+}
+$igesDwg = Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $igesPath)}"
+if ($igesDwg) {
+    $iges = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json $igesDwg.dwg),`"sourceFile`":$(ConvertTo-Json $igesPath),`"position`":[3850,0,0],`"scale`":1,`"deleteDwg`":true}" -Write
+    Write-Host "  contenu IGES : $($iges.contents | ConvertTo-Json -Compress), unités $($iges.sourceUnits)"
+    Check 'IGES : Xmin' $iges.extents.min[0] 3850; Check 'IGES : Xmax' $iges.extents.max[0] 3950; Check 'IGES : Zmax' $iges.extents.max[2] 20
+} else { Fail 'IGES non converti' }
+Expect-Error 'import 3D : format non pris en charge' '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $PSCommandPath)}" -Read
+Expect-Error 'import 3D : chemin relatif' '_convert_3d_model' '{"filePath":"boite.step"}' -Read
+Expect-Error 'import 3D : fichier absent' '_convert_3d_model' '{"filePath":"C:\\mcpmap3d-absent\\absent.step"}' -Read
+
 Write-Host "Inerties"
 $inertia = (Call 'get_solid_properties' "{`"handles`":[`"$($box.solid.handle)`"],`"inertia`":true}").objects[0].inertia
 $principal = @($inertia.principalMoments | Sort-Object)

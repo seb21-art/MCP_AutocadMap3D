@@ -31,8 +31,8 @@ Code 100 % original : ne jamais décompiler, copier ou réutiliser le code d'un 
 - Dossier `MCPMap3D.bundle` contenant un `PackageContents.xml` avec un bloc `Components` par version : `Contents/2026/` (`SeriesMin="R25.1" SeriesMax="R25.1"`) et `Contents/2027/` (`SeriesMin="R26.0" SeriesMax="R26.0"`), `Platform="Map|Civil3D|AutoCAD"` et `LoadOnAutoCADStartup="True"`.
 - Script PowerShell d'installation vers `%APPDATA%\Autodesk\ApplicationPlugins` (pas de droits administrateur), qui compile une DLL pour chaque version d'AutoCAD installée.
 
-## Outils (159)
-Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Server/Tools/*.cs` (`[McpServerTool]`), et enregistré côté plug-in dans `src/McpMap3D.Plugin/Tools/ToolRegistry.cs` avec son accès au dessin (`None`, `Read`, `Write`, `Document`). Le README décrit chaque outil et ses limites. Seule exception : `run_batch`, propre au serveur (`Tools/BatchTools.cs`), qui appelle les autres outils par le SDK MCP.
+## Outils (160)
+Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Server/Tools/*.cs` (`[McpServerTool]`), et enregistré côté plug-in dans `src/McpMap3D.Plugin/Tools/ToolRegistry.cs` avec son accès au dessin (`None`, `Read`, `Write`, `Document`, `Background` hors du thread principal). Le README décrit chaque outil et ses limites. Seule exception : `run_batch`, propre au serveur (`Tools/BatchTools.cs`), qui appelle les autres outils par le SDK MCP.
 - Système : `ping`, `run_batch` (lot d'appels d'outils, 50 au plus)
 - Dessins : `list_drawings`, `new_drawing`, `open_drawing`, `save_drawing`, `close_drawing` (contexte application, hors annulation U)
 - Lecture : `get_drawing_info`, `list_layers`, `list_linetypes`, `list_entities` (filtres par type et calque, pagination)
@@ -43,7 +43,7 @@ Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Serv
 - Cotation : `list_dimension_styles`, `set_dimension_style`, `set_dimension_format`, `get_dimension_format`
 - 3D : `create_box`, `create_wedge`, `create_cylinder`, `create_sphere`, `create_torus`, `create_pyramid`, `create_3d_polyline`, `create_helix`, `extrude`, `revolve`, `loft`, `boolean_solids`, `rotate_entities`, `mirror_3d`, `align_3d`, `create_region`, `slice_solid`, `get_section`, `check_interference`, `get_solid_properties`, `get_solid_topology`, `fillet_edges`, `chamfer_edges`, `shell_solid`, `edit_solid_faces`, `imprint_solid`, `clean_solid`, `thicken_surface`, `separate_solid`, `buildings_to_solids`, `set_view`, `capture_view`
 - Surfaces et maillages : `create_surface`, `sculpt_solid`, `project_curves`, `create_mesh`, `convert_mesh`, `smooth_mesh`, `create_terrain_mesh` (MNT par triangulation de Delaunay)
-- Échanges 3D : `export_stl`, `export_sat`, `import_sat`
+- Échanges 3D : `export_stl`, `export_sat`, `import_sat`, `import_3d_model` (STEP et IGES : conversion par `acTranslators.exe`, le traducteur de la commande IMPORT, dans un outil plug-in `Background` hors du thread principal, puis insertion du DWG en bloc)
 - Map 3D : `list_od_tables`, `get_od_records` (par handle), `set_od_value`
 - Systèmes de coordonnées : `get_coordinate_system`, `search_coordinate_systems`, `set_coordinate_system`
 - SCU : `list_ucs`, `set_ucs`, `delete_ucs`, `convert_ucs_points` (les autres outils restent en SCG)

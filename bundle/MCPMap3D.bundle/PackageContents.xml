@@ -5,7 +5,7 @@
     ProductType="Application"
     Name="MCP Map 3D"
     Description="Connecteur MCP personnel entre Claude et AutoCAD Map 3D 2026 ou 2027"
-    AppVersion="0.27.1"
+    AppVersion="0.28.0"
     Author="Personnel"
     ProductCode="{D334D4D3-4870-4320-872F-C9F15505432C}"
     UpgradeCode="{FC2B8520-F4DC-4ED4-B553-2EC4BC00CBC4}">

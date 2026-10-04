@@ -20,6 +20,12 @@ internal enum DrawingAccess
 
     /// <summary>Opération sur le document sans transaction pré-ouverte (LayoutManager…).</summary>
     Document,
+
+    /// <summary>
+    /// Travail long hors du thread principal (conversion de fichier par un programme externe) : AutoCAD reste
+    /// disponible pendant ce temps. Aucun objet AutoCAD ne doit y être lu ni modifié.
+    /// </summary>
+    Background,
 }
 
 /// <summary>Contexte passé à un outil, sur le thread principal d'AutoCAD.</summary>
@@ -190,6 +196,8 @@ internal sealed class ToolRegistry
             .Add("export_stl", DrawingAccess.Read, ModelingTools.ExportStl)
             .Add("export_sat", DrawingAccess.Read, ModelingTools.ExportSat)
             .Add("import_sat", DrawingAccess.Write, ModelingTools.ImportSat)
+            .Add("_convert_3d_model", DrawingAccess.Background, ModelingTools.ConvertModel)
+            .Add("_insert_3d_model", DrawingAccess.Write, ModelingTools.InsertModel)
             .Add("get_coordinate_system", DrawingAccess.Read, CoordinateSystemTools.GetCoordinateSystem)
             .Add("search_coordinate_systems", DrawingAccess.Read, CoordinateSystemTools.SearchCoordinateSystems)
             .Add("set_coordinate_system", DrawingAccess.Write, CoordinateSystemTools.SetCoordinateSystem)

@@ -46,8 +46,12 @@ internal sealed class RequestProcessor(ToolRegistry registry, MainThreadDispatch
         var clock = Stopwatch.StartNew();
         try
         {
-            var result = await dispatcher.InvokeAsync(() => ExecuteAsync(tool, request.Params), timeout, cancellationToken)
-                .ConfigureAwait(false);
+            // Un outil Background s'exécute sur le thread du pipe, sans attendre le thread principal ni sa limite.
+            var result = tool.Access == DrawingAccess.Background
+                ? await Task.Run(() => Serialize(tool.Handler(new ToolContext(null, null), request.Params)), cancellationToken)
+                    .ConfigureAwait(false)
+                : await dispatcher.InvokeAsync(() => ExecuteAsync(tool, request.Params), timeout, cancellationToken)
+                    .ConfigureAwait(false);
             PluginStats.RequestCompleted(tool.Name, ok: true, clock.Elapsed, error: null);
             return PipeResponse.Success(request.Id, result);
         }

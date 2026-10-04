@@ -18,6 +18,9 @@ public sealed class PluginApp : IExtensionApplication
 
     internal static PipeServer? Server { get; private set; }
 
+    /// <summary>Langue du produit AutoCAD (LCID), lue au chargement sur le thread principal ; anglais par défaut.</summary>
+    internal static int ProductLcid { get; private set; } = 1033;
+
     public void Initialize()
     {
         try
@@ -25,6 +28,7 @@ public sealed class PluginApp : IExtensionApplication
             PluginStats.MarkLoaded();
             MapAssemblyResolver.Register();
             Log.Info($"Chargement du plug-in {Version} dans AutoCAD {AcApp.Version}");
+            ProductLcid = ReadProductLcid();
             Dispatcher = new MainThreadDispatcher();
             Server = new PipeServer(new RequestProcessor(ToolRegistry.CreateDefault(), Dispatcher));
             Server.Start();
@@ -53,6 +57,19 @@ public sealed class PluginApp : IExtensionApplication
         catch (Exception ex)
         {
             Log.Error("Erreur à l'arrêt", ex);
+        }
+    }
+
+    private static int ReadProductLcid()
+    {
+        try
+        {
+            return SystemObjects.DynamicLinker.ProductLcid;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Langue du produit illisible", ex);
+            return 1033;
         }
     }
 

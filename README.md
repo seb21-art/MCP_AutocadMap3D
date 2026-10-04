@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (159 tools: 2D
-> drafting, 3D solids, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (160 tools: 2D
+> drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.27.1, 159 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.28.0, 160 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 159 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 160 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -273,6 +273,7 @@ Modélisation 3D :
 | `export_stl` | Export STL de solides, ramenés à l'origine par défaut (impression 3D) |
 | `export_sat` | Export ACIS (SAT) de solides, surfaces et régions |
 | `import_sat` | Import d'un fichier ACIS texte (SAT) |
+| `import_3d_model` | Import d'un fichier STEP (.stp, .step) ou IGES (.igs, .iges), comme IMPORT : conversion par le traducteur d'AutoCAD (`acTranslators.exe`) hors du thread principal, puis insertion en bloc (ou décomposée), unités du fichier converties vers celles du dessin. Chemin absolu requis |
 
 Dessin technique 2D :
 
@@ -670,13 +671,16 @@ Servies par le pipe mais volontairement **non exposées comme outils MCP**, elle
 | `status` | État du connecteur ; répond même si AutoCAD est occupé |
 | `_undo` | Met la commande U d'AutoCAD dans la file (paramètre `count`) |
 | `_create_od_table` | Crée une table de données d'objet (`name`, `description`, `fields`) |
+| `_convert_3d_model` | Conversion d'un fichier STEP ou IGES en DWG temporaire par `acTranslators.exe`, hors du thread principal (`filePath`, `timeoutSeconds`) ; premier temps de `import_3d_model` |
+| `_insert_3d_model` | Insertion d'un DWG converti en bloc (`dwgPath`, `sourceFile`, `position`, `scale`, `blockName`, `explode`, `layer`, `color`, `deleteDwg`) ; second temps de `import_3d_model` |
 | `_fdo_diagnostic` | Calques FDO de la carte avec leur type, XML de leur définition et de leur source ; données nommées d'une source (`source`, `dataNames`) ; configuration par défaut d'un fournisseur (`provider`, `connectionString`) |
 
 ## Sécurité et données
 
 - Le pipe n'accepte que l'utilisateur Windows courant, dans sa session. Rien n'écoute sur le réseau.
 - Aucun outil n'exécute de LISP ni de commande AutoCAD arbitraire : l'assistant ne peut faire que ce que les
-  outils décrits ici permettent.
+  outils décrits ici permettent. Le seul programme lancé est le traducteur d'AutoCAD (`acTranslators.exe`, dans le
+  dossier d'installation), par `import_3d_model`, avec le fichier à importer et un DWG temporaire pour seuls arguments.
 - Les seuls accès à Internet sont ceux des outils de cadastre, vers les services publics de l'IGN
   (`apicarto.ign.fr`, `data.geopf.fr`) et de la Base Adresse Nationale (`api-adresse.data.gouv.fr`), et ceux des
   connexions FDO vers les serveurs que vous indiquez (WMS, WFS…), faits par Map 3D. Aucune télémétrie.
