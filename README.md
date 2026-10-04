@@ -273,7 +273,7 @@ Modélisation 3D :
 | `export_stl` | Export STL de solides, ramenés à l'origine par défaut (impression 3D) |
 | `export_sat` | Export ACIS (SAT) de solides, surfaces et régions |
 | `import_sat` | Import d'un fichier ACIS texte (SAT) |
-| `import_3d_model` | Import d'un fichier STEP (.stp, .step) ou IGES (.igs, .iges), comme IMPORT : conversion par le traducteur d'AutoCAD (`acTranslators.exe`) hors du thread principal, puis insertion en bloc (ou décomposée), unités du fichier converties vers celles du dessin. Chemin absolu requis |
+| `import_3d_model` | Import d'un fichier STEP (.stp, .step) ou IGES (.igs, .iges), comme IMPORT : conversion par le traducteur d'AutoCAD (`acTranslators.exe`) hors du thread principal, puis insertion en bloc (ou décomposée jusqu'aux solides et surfaces), unités du fichier converties vers celles du dessin. Chemin absolu requis |
 
 Dessin technique 2D :
 

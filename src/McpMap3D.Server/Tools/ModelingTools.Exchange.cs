@@ -62,8 +62,8 @@ public sealed partial class ModelingTools
         [Description("Point d'insertion de l'origine du modèle, [x, y] ou [x, y, z] (origine du dessin par défaut).")] double[]? position = null,
         [Description("Échelle uniforme, à la place de la conversion d'unités automatique.")] double? scale = null,
         [Description("Nom du bloc créé, refusé s'il existe. Par défaut le nom du fichier, suffixé _2, _3… s'il est pris.")] string? blockName = null,
-        [Description("Décomposer le bloc de premier niveau : les objets (ou les pièces d'un assemblage, en blocs) vont " +
-                     "directement dans l'espace courant.")] bool explode = false,
+        [Description("Décomposer le modèle jusqu'aux objets de base (solides, surfaces…), blocs imbriqués des pièces " +
+                     "d'un assemblage compris, directement dans l'espace courant.")] bool explode = false,
         [Description(LayerHelp)] string? layer = null,
         [Description(ColorHelp)] string? color = null,
         [Description("Durée maximale de la conversion, en secondes (300 par défaut, 1800 au plus).")] int timeoutSeconds = 300,

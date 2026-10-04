@@ -196,6 +196,7 @@ internal static partial class ModelingTools
 
         var blocks = (BlockTable)transaction.GetObject(database.BlockTableId, OpenMode.ForRead);
         var name = ModelBlockName(blocks, reader.GetString("blockName"), sourceFile);
+        var existingBlocks = new HashSet<ObjectId>(blocks.Cast<ObjectId>());
         ObjectId blockId;
         try
         {
@@ -233,31 +234,24 @@ internal static partial class ModelingTools
             };
         }
 
-        var pieces = new DBObjectCollection();
+        var pieces = new List<Entity>();
         try
         {
-            reference.Explode(pieces);
+            ExplodeToLeaves(reference, pieces, 0);
         }
         catch (AcException ex)
         {
+            foreach (var piece in pieces)
+                piece.Dispose();
+
             throw new PipeException(PipeErrorCodes.InvalidParams,
                 $"AutoCAD n'a pas pu décomposer le modèle ({ex.ErrorStatus}) : importez-le sans explode.");
-        }
-        finally
-        {
-            reference.Dispose();
         }
 
         var created = new List<object>();
         Extents3d? extents = null;
-        foreach (DBObject piece in pieces)
+        foreach (var entity in pieces)
         {
-            if (piece is not Entity entity)
-            {
-                piece.Dispose();
-                continue;
-            }
-
             created.Add(EditTools.Append(context, entity, reader));
             if (Format.TryGetExtents(entity) is Extents3d box)
             {
@@ -273,8 +267,18 @@ internal static partial class ModelingTools
             }
         }
 
-        // Les blocs imbriqués (pièces d'un assemblage) restent définis ; seul le bloc de premier niveau disparaît.
+        // Le bloc du modèle et ses blocs imbriqués créés par l'import (pièces d'un assemblage) ne servent plus.
+        var nestedBlocks = NestedBlocks(transaction, blockId);
         transaction.GetObject(blockId, OpenMode.ForWrite).Erase();
+        foreach (var nestedId in nestedBlocks)
+        {
+            var nested = (BlockTableRecord)transaction.GetObject(nestedId, OpenMode.ForRead);
+            if (!existingBlocks.Contains(nestedId) && nested.GetBlockReferenceIds(true, false).Count == 0)
+            {
+                nested.UpgradeOpen();
+                nested.Erase();
+            }
+        }
 
         return new
         {
@@ -288,6 +292,51 @@ internal static partial class ModelingTools
             common.Contents,
             Extents = Format.Extents(extents),
         };
+    }
+
+    /// <summary>
+    /// Décompose une référence jusqu'aux objets de base : les pièces d'un assemblage, et le bloc dans lequel le
+    /// traducteur range un modèle, sont des blocs imbriqués. La référence passée est libérée.
+    /// </summary>
+    private static void ExplodeToLeaves(BlockReference reference, List<Entity> leaves, int depth)
+    {
+        var pieces = new DBObjectCollection();
+        try
+        {
+            reference.Explode(pieces);
+        }
+        finally
+        {
+            reference.Dispose();
+        }
+
+        foreach (DBObject piece in pieces)
+        {
+            if (piece is BlockReference nested && depth < 20)
+                ExplodeToLeaves(nested, leaves, depth + 1);
+            else if (piece is Entity entity)
+                leaves.Add(entity);
+            else
+                piece.Dispose();
+        }
+    }
+
+    /// <summary>Définitions de blocs référencées, directement ou non, par un bloc.</summary>
+    private static HashSet<ObjectId> NestedBlocks(Transaction transaction, ObjectId blockId)
+    {
+        var found = new HashSet<ObjectId>();
+        var pending = new Stack<ObjectId>([blockId]);
+        while (pending.Count > 0)
+        {
+            foreach (var id in (BlockTableRecord)transaction.GetObject(pending.Pop(), OpenMode.ForRead))
+            {
+                if (id.ObjectClass.DxfName == "INSERT"
+                    && transaction.GetObject(id, OpenMode.ForRead) is BlockReference child && found.Add(child.BlockTableRecord))
+                    pending.Push(child.BlockTableRecord);
+            }
+        }
+
+        return found;
     }
 
     /// <summary>Nombre d'objets de l'espace objet du DWG converti, par type.</summary>

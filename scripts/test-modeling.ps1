@@ -649,7 +649,7 @@ if ($stepDwg) {
     if ($stepExploded.count -ge 1) { Pass "STEP décomposé : $($stepExploded.count) objet(s) $(@($stepExploded.objects.type) -join ', ')" } else { Fail 'STEP décomposé : aucun objet' }
     $solid = @($stepExploded.objects | Where-Object type -eq '3DSOLID')
     if ($solid.Count -eq 1) { Check 'STEP décomposé : volume du solide' (Props $solid[0].handle).volume 100000 1e-4 }
-    else { Write-Host "  INFO  pas de solide unique après décomposition : volume non contrôlé" -ForegroundColor Yellow }
+    else { Fail "STEP décomposé : un solide 3D attendu, obtenu $(@($stepExploded.objects.type) -join ', ')" }
     Check 'STEP décomposé : Ymin' $stepExploded.extents.min[1] 100
     $auto = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Convert-Step)),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,200,0],`"deleteDwg`":true}" -Write
     if ($auto.block -eq 'boite-100x50x20_2') { Pass 'STEP : second bloc suffixé _2' } else { Fail "STEP : second bloc $($auto.block)" }
