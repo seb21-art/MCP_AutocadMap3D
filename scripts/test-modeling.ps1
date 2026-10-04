@@ -633,6 +633,8 @@ Write-Host "Import STEP et IGES (traducteur d'AutoCAD)"
 $fixtures = Join-Path (Split-Path $PSScriptRoot -Parent) 'tests\fixtures'
 $stepPath = Join-Path $fixtures 'boite-100x50x20.step'
 $igesPath = Join-Path $fixtures 'boite-100x50x20.igs'
+# Conversion STEP à part : un appel imbriqué dans une chaîne JSON interpolée la tronque.
+function Convert-Step { (Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}").dwg }
 $stepDwg = Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}"
 if ($stepDwg -and (Test-Path $stepDwg.dwg)) { Pass "STEP converti en $($stepDwg.seconds) s : $($stepDwg.bytes) octets" } else { Fail 'STEP non converti' }
 if ($stepDwg) {
@@ -643,17 +645,17 @@ if ($stepDwg) {
     Check 'STEP : Xmin' $step.extents.min[0] 3700; Check 'STEP : Xmax' $step.extents.max[0] 3800
     Check 'STEP : Ymax' $step.extents.max[1] 50; Check 'STEP : Zmax' $step.extents.max[2] 20
     if (-not (Test-Path (Split-Path $stepDwg.dwg -Parent))) { Pass 'STEP : dossier de conversion supprimé' } else { Fail 'STEP : dossier de conversion resté' }
-    $stepExploded = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}").dwg),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,100,0],`"scale`":1,`"explode`":true,`"deleteDwg`":true}" -Write
+    $stepExploded = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Convert-Step)),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,100,0],`"scale`":1,`"explode`":true,`"deleteDwg`":true}" -Write
     if ($stepExploded.count -ge 1) { Pass "STEP décomposé : $($stepExploded.count) objet(s) $(@($stepExploded.objects.type) -join ', ')" } else { Fail 'STEP décomposé : aucun objet' }
     $solid = @($stepExploded.objects | Where-Object type -eq '3DSOLID')
     if ($solid.Count -eq 1) { Check 'STEP décomposé : volume du solide' (Props $solid[0].handle).volume 100000 1e-4 }
     else { Write-Host "  INFO  pas de solide unique après décomposition : volume non contrôlé" -ForegroundColor Yellow }
     Check 'STEP décomposé : Ymin' $stepExploded.extents.min[1] 100
-    $auto = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}").dwg),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,200,0],`"deleteDwg`":true}" -Write
+    $auto = Call '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Convert-Step)),`"sourceFile`":$(ConvertTo-Json $stepPath),`"position`":[3700,200,0],`"deleteDwg`":true}" -Write
     if ($auto.block -eq 'boite-100x50x20_2') { Pass 'STEP : second bloc suffixé _2' } else { Fail "STEP : second bloc $($auto.block)" }
     Write-Host "  INFO  échelle automatique $($auto.scale) ($($auto.sourceUnits) -> $($auto.drawingUnits)), Xmax $($auto.extents.max[0])"
     if ($auto.sourceUnits -eq 'Millimeters' -and $auto.drawingUnits -eq 'Meters') { Check 'STEP : mm vers m' $auto.scale 0.001 1e-9 }
-    Expect-Error 'STEP : nom de bloc déjà pris' '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $stepPath)}").dwg),`"blockName`":`"boite-100x50x20`",`"deleteDwg`":true}"
+    Expect-Error 'STEP : nom de bloc déjà pris' '_insert_3d_model' "{`"dwgPath`":$(ConvertTo-Json (Convert-Step)),`"blockName`":`"boite-100x50x20`",`"deleteDwg`":true}"
 }
 $igesDwg = Call '_convert_3d_model' "{`"filePath`":$(ConvertTo-Json $igesPath)}"
 if ($igesDwg) {
