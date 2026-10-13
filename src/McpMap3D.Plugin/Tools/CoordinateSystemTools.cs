@@ -317,6 +317,106 @@ internal static class CoordinateSystemTools
         }
     }
 
+    /// <summary>
+    /// Transformation de points entre deux systèmes (mêmes noms que convert_coordinates), ouverte une fois pour de
+    /// nombreux points : import de points, reprojection d'objets, écriture FDO.
+    /// </summary>
+    internal static PointTransform CreateTransform(Database database, string from, string to) =>
+        MapInfo.IsAvailable ? CreateTransformMap3D(database, from, to) : CreateTransformClassic(from, to);
+
+    private static PointTransform CreateTransformClassic(string from, string to)
+    {
+        static bool IsLonLat(string name) => name.ToLowerInvariant() switch
+        {
+            "lonlat" or "wgs84" or "ll84" or "epsg:4326" or "4326" => true,
+            "drawing" or "lambert93" or "epsg:2154" or "2154" => false,
+            _ => throw new PipeException(PipeErrorCodes.InvalidParams,
+                $"« {name} » : sans Map 3D, seules les conversions entre lonlat et Lambert-93 (drawing) sont disponibles."),
+        };
+
+        var (fromLonLat, toLonLat) = (IsLonLat(from), IsLonLat(to));
+        Func<double, double, (double, double)> apply = fromLonLat == toLonLat ? (x, y) => (x, y)
+            : fromLonLat ? (x, y) => Lambert93.ToLambert93(x, y)
+            : (x, y) => Lambert93.ToWgs84(x, y);
+        return new PointTransform(fromLonLat ? "LL84" : "Lambert93", toLonLat ? "LL84" : "Lambert93",
+            fromLonLat, fromLonLat == toLonLat, apply, () => { });
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static PointTransform CreateTransformMap3D(Database database, string from, string to)
+    {
+        var factory = new MgCoordinateSystemFactory();
+        var source = OpenSystem(factory, database, from);
+        var target = OpenSystem(factory, database, to);
+        var (sourceCode, targetCode) = (source.GetCsCode(), target.GetCsCode());
+        var angular = source.GetUnits().Contains("DEG", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(sourceCode, targetCode, StringComparison.OrdinalIgnoreCase))
+        {
+            source.Dispose();
+            target.Dispose();
+            return new PointTransform(sourceCode, targetCode, angular, true, (x, y) => (x, y), () => { });
+        }
+
+        var transform = factory.GetTransform(source, target);
+        return new PointTransform(sourceCode, targetCode, angular, false, (x, y) =>
+        {
+            MgCoordinate coordinate;
+            try
+            {
+                coordinate = transform.Transform(x, y);
+            }
+            catch (MgException ex)
+            {
+                ex.Dispose();
+                throw new PipeException(PipeErrorCodes.InvalidParams,
+                    $"Le point ({Format.Number(x)}, {Format.Number(y)}) ne se convertit pas de « {sourceCode} » vers « {targetCode} ».");
+            }
+
+            var result = (coordinate.GetX(), coordinate.GetY());
+            coordinate.Dispose();
+            return double.IsFinite(result.Item1) && double.IsFinite(result.Item2)
+                ? result
+                : throw new PipeException(PipeErrorCodes.InvalidParams,
+                    $"Le point ({Format.Number(x)}, {Format.Number(y)}) sort du domaine de conversion de « {sourceCode} » vers « {targetCode} ».");
+        }, () =>
+        {
+            transform.Dispose();
+            source.Dispose();
+            target.Dispose();
+        });
+    }
+
+    /// <summary>Attribue un système au dessin, de façon annulable par U (sans déplacer d'objet).</summary>
+    internal static void AssignDrawingSystem(Database database, string code)
+    {
+        if (!MapInfo.IsAvailable)
+            throw new PipeException(PipeErrorCodes.MapUnavailable, "Attribuer un système de coordonnées au dessin requiert AutoCAD Map 3D.");
+        AssignDrawingSystemMap3D(database, code);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AssignDrawingSystemMap3D(Database database, string code) => AcMapCoordsysCore.SetCoordinateSystem(code, database);
+
+    /// <summary>Système de coordonnées du dessin en WKT (null sans Map 3D ou sans système attribué).</summary>
+    internal static string? DrawingWkt(Database database) => MapInfo.IsAvailable ? DrawingWktMap3D(database) : null;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static string? DrawingWktMap3D(Database database)
+    {
+        var code = AcMapCoordsysCore.GetCoordinateSystem(database);
+        if (string.IsNullOrEmpty(code))
+            return null;
+        try
+        {
+            return new MgCoordinateSystemFactory().ConvertCoordinateSystemCodeToWkt(code);
+        }
+        catch (MgException ex)
+        {
+            ex.Dispose();
+            return null;
+        }
+    }
+
     /// <summary>drawing, lonlat (WGS84), EPSG:n ou numéro EPSG, ou code du catalogue.</summary>
     private static MgCoordinateSystem OpenSystem(MgCoordinateSystemFactory factory, Database database, string name)
     {
@@ -885,4 +985,23 @@ internal static class CoordinateSystemTools
                 $"{Code} {Description} {Location} {(Epsg > 0 ? Epsg.ToString(CultureInfo.InvariantCulture) : "")}".ToLowerInvariant();
         }
     }
+}
+
+/// <summary>Transformation de points ouverte par CoordinateSystemTools.CreateTransform ; à libérer après usage.</summary>
+internal sealed class PointTransform(
+    string fromCode, string toCode, bool sourceAngular, bool isIdentity,
+    Func<double, double, (double X, double Y)> apply, Action dispose) : IDisposable
+{
+    public string FromCode { get; } = fromCode;
+
+    public string ToCode { get; } = toCode;
+
+    /// <summary>Système d'origine en degrés (longitude/latitude).</summary>
+    public bool SourceAngular { get; } = sourceAngular;
+
+    public bool IsIdentity { get; } = isIdentity;
+
+    public (double X, double Y) Apply(double x, double y) => apply(x, y);
+
+    public void Dispose() => dispose();
 }

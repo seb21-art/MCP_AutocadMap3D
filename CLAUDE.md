@@ -31,7 +31,7 @@ Code 100 % original : ne jamais décompiler, copier ou réutiliser le code d'un 
 - Dossier `MCPMap3D.bundle` contenant un `PackageContents.xml` avec un bloc `Components` par version : `Contents/2026/` (`SeriesMin="R25.1" SeriesMax="R25.1"`) et `Contents/2027/` (`SeriesMin="R26.0" SeriesMax="R26.0"`), `Platform="Map|Civil3D|AutoCAD"` et `LoadOnAutoCADStartup="True"`.
 - Script PowerShell d'installation vers `%APPDATA%\Autodesk\ApplicationPlugins` (pas de droits administrateur), qui compile une DLL pour chaque version d'AutoCAD installée.
 
-## Outils (167)
+## Outils (176)
 Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Server/Tools/*.cs` (`[McpServerTool]`), et enregistré côté plug-in dans `src/McpMap3D.Plugin/Tools/ToolRegistry.cs` avec son accès au dessin (`None`, `Read`, `Write`, `Document`, `Background` hors du thread principal). Le README décrit chaque outil et ses limites. Seule exception : `run_batch`, propre au serveur (`Tools/BatchTools.cs`), qui appelle les autres outils par le SDK MCP.
 - Système : `ping`, `run_batch` (lot d'appels d'outils, 50 au plus), `undo` (derniers appels du connecteur seulement, sauf `force`)
 - Dessins : `list_drawings`, `new_drawing`, `open_drawing`, `save_drawing`, `close_drawing` (contexte application, hors annulation U)
@@ -45,20 +45,21 @@ Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Serv
 - Surfaces et maillages : `create_surface`, `sculpt_solid`, `project_curves`, `create_mesh`, `convert_mesh`, `smooth_mesh`, `create_terrain_mesh` (MNT par triangulation de Delaunay)
 - Échanges 3D : `export_stl`, `export_sat`, `import_sat`, `import_3d_model` (STEP et IGES : conversion par `acTranslators.exe`, le traducteur de la commande IMPORT, dans un outil plug-in `Background` hors du thread principal, puis insertion du DWG en bloc)
 - Map 3D : `list_od_tables`, `get_od_records` (par handle), `set_od_value`, `create_od_table`, `edit_od_table`, `delete_od_table`
-- Systèmes de coordonnées : `get_coordinate_system`, `search_coordinate_systems`, `set_coordinate_system`, `convert_coordinates`
+- Systèmes de coordonnées : `get_coordinate_system`, `search_coordinate_systems`, `set_coordinate_system`, `convert_coordinates`, `reproject_entities`
 - SCU : `list_ucs`, `set_ucs`, `delete_ucs`, `convert_ucs_points` (les autres outils restent en SCG)
 - Xref (références externes DWG) : `list_xrefs`, `attach_xref`, `detach_xrefs`, `reload_xrefs`, `unload_xrefs`, `bind_xrefs`, `edit_xref`
 - Présentation : `list_layouts`, `set_current_layout`, `create_layout`, `rename_layout`, `delete_layout`, `list_viewports`, `create_viewport`, `set_viewport`
 - Impression / PDF : `list_plot_devices`, `list_plot_styles`, `export_pdf`, `plot_drawing`
 - Cadastre : `search_cadastre_address`, `import_cadastre` (IGN APICARTO, BAN, bâtiments BD TOPO en 2D ou 3D ; projection Lambert-93 en C# pur quand Map 3D est absent)
 - Rendu : `list_materials`, `set_material`, `assign_material`, `list_lights`, `set_light`, `delete_lights`, `get_sun`, `set_sun` (calé sur le système de coordonnées), `get_view_ambiance`, `set_view_ambiance`
-- FDO : `list_fdo_providers`, `list_fdo_connections`, `connect_fdo`, `describe_fdo`, `add_fdo_layer`, `list_fdo_layers`, `query_fdo`, `set_fdo_layer`, `remove_fdo_layer`, `disconnect_fdo`, `get_fdo_selection`
+- FDO : `list_fdo_providers`, `list_fdo_connections`, `connect_fdo`, `describe_fdo`, `add_fdo_layer`, `list_fdo_layers`, `query_fdo`, `set_fdo_layer`, `set_fdo_layer_style`, `insert_fdo_features`, `update_fdo_features`, `delete_fdo_features`, `remove_fdo_layer`, `disconnect_fdo`, `get_fdo_selection`
+- Points et réseaux : `import_points` (CSV, TXT, XYZ), `create_network_topology`, `trace_network` (chemin, propagation, amont, aval, vannes fermées), `delete_topology`
 - Fichiers SIG (API ImportExport de Map 3D, comme MAPIMPORT et MAPEXPORT) : `import_gis`, `export_gis` (SHP, MapInfo MIF/TAB, GML, E00, DGN, SDF ; attributs en données d'objet)
 
 ## Construire et tester
 - `scripts\install.ps1` construit et installe le plug-in (AutoCAD fermé) et le serveur ; `scripts\register.ps1` l'enregistre dans Claude Code et Claude Desktop.
 - Tests unitaires : `dotnet test tests\McpMap3D.Tests` (projection Lambert-93, triangulation de Delaunay du maillage de terrain, calage du soleil).
-- Tests de bout en bout, AutoCAD lancé avec une copie de dessin ouverte : `scripts\test-*.ps1` (`test-tools`, `test-editing`, `test-drafting`, `test-dimensions`, `test-modeling`, `test-layouts`, `test-plot`, `test-drawings`, `test-xrefs`, `test-scene`, `test-fdo`, `test-gis`, `test-batch`, `test-cadastre`, `test-mcp`, `test-pipe`, `smoke-test`). Ceux qui modifient le dessin annulent leurs modifications avec U. Les connexions FDO ne sont pas annulées par U : `test-fdo.ps1` les retire lui-même.
+- Tests de bout en bout, AutoCAD lancé avec une copie de dessin ouverte : `scripts\test-*.ps1` (`test-tools`, `test-editing`, `test-drafting`, `test-dimensions`, `test-modeling`, `test-layouts`, `test-plot`, `test-drawings`, `test-xrefs`, `test-scene`, `test-fdo`, `test-network`, `test-gis`, `test-batch`, `test-cadastre`, `test-mcp`, `test-pipe`, `smoke-test`). Ceux qui modifient le dessin annulent leurs modifications avec U. Les connexions FDO ne sont pas annulées par U : `test-fdo.ps1` les retire lui-même.
 - Un nouvel outil s'accompagne de ses contrôles dans le script de test de sa famille, de sa ligne dans le README et d'une montée de version.
 
 ## Règles

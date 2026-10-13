@@ -9,6 +9,10 @@ internal static class Handles
 {
     private const int Maximum = 5000;
 
+    /// <summary>Un seul handle, donné en texte.</summary>
+    public static ObjectId ResolveOne(ToolContext context, string handle) =>
+        Resolve(context, new ArgReader(System.Text.Json.JsonSerializer.SerializeToElement(new { handles = new[] { handle } })))[0];
+
     public static IReadOnlyList<ObjectId> Resolve(ToolContext context, ArgReader reader, string parameterName = "handles")
     {
         var handles = reader.GetStrings(parameterName);

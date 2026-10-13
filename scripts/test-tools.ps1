@@ -203,6 +203,25 @@ try {
     Test-Tool 'convert_coordinates : longitude et latitude inversées signalées' 'convert_coordinates' '{"points":[[46.5,3]],"from":"lonlat","to":"Lambert93"}' { param($r) $r.warning } | Out-Null
     Test-Error 'convert_coordinates : système inconnu' 'convert_coordinates' '{"points":[[0,0]],"from":"PAS.UN.CODE","to":"lonlat"}' 'invalid_params'
 
+    Write-Host "Reprojection"
+    $rl = Test-Tool 'ligne en Lambert-93' 'create_line' "{`"start`":[850000,6550000],`"end`":[850100,6550000],`"layer`":`"$testLayer`"}" { param($r) $r.handle }; $writes++
+    $rc = Test-Tool 'cercle en Lambert-93' 'create_circle' "{`"center`":[850050,6550050],`"radius`":10,`"layer`":`"$testLayer`"}" { param($r) $r.handle }; $writes++
+    $expected = (Invoke-Tool 'convert_coordinates' '{"points":[[850000,6550000],[850050,6550050]],"from":"Lambert93","to":"RGF93.CC46"}').result.points
+    Test-Tool 'reproject_entities Lambert-93 -> CC46' 'reproject_entities' "{`"from`":`"Lambert93`",`"to`":`"RGF93.CC46`",`"handles`":[`"$($rl.handle)`",`"$($rc.handle)`"]}" {
+        param($r) $r.reprojected -eq 2 -and $r.verticesConverted -eq 1 -and $r.locallyTransformed -eq 1
+    } | Out-Null; $writes++
+    Test-Tool 'sommet converti comme convert_coordinates' 'list_entities' "{`"handles`":[`"$($rl.handle)`",`"$($rc.handle)`"],`"includeGeometry`":true}" {
+        param($r)
+        $line = $r.entities | Where-Object handle -eq $rl.handle; $circle = $r.entities | Where-Object handle -eq $rc.handle
+        [math]::Abs($line.start[0] - $expected[0][0]) -lt 0.001 -and [math]::Abs($line.start[1] - $expected[0][1]) -lt 0.001 -and
+            [math]::Abs($circle.center[0] - $expected[1][0]) -lt 0.01 -and $circle.radius -gt 10 -and $circle.radius -lt 10.01
+    } | Out-Null
+    Test-Tool 'reprojection inverse' 'reproject_entities' "{`"from`":`"RGF93.CC46`",`"to`":`"Lambert93`",`"handles`":[`"$($rl.handle)`"]}" { param($r) $r.reprojected -eq 1 } | Out-Null; $writes++
+    Test-Tool 'retour au point de départ' 'list_entities' "{`"handles`":[`"$($rl.handle)`"],`"includeGeometry`":true}" {
+        param($r) [math]::Abs($r.entities[0].start[0] - 850000) -lt 0.001 -and [math]::Abs($r.entities[0].start[1] - 6550000) -lt 0.001
+    } | Out-Null
+    Test-Error 'reprojection vers le même système' 'reproject_entities' "{`"from`":`"Lambert93`",`"to`":`"2154`",`"handles`":[`"$($rl.handle)`"]}" 'invalid_params' -IsWrite
+
     Write-Host "Erreurs attendues"
     Test-Error 'méthode inconnue' 'nexiste_pas' '{}' 'unknown_method'
     Test-Error 'calque absent' 'create_line' '{"start":[0,0],"end":[1,1],"layer":"ZZ_INEXISTANT"}' 'invalid_params' -IsWrite

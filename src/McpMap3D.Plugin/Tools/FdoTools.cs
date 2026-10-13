@@ -27,7 +27,7 @@ internal static class FdoTools
     // Sources et calques créés ici : à la racine de Library://, comme ceux de MAPCONNECT (qui ne montre que la
     // racine), avec un préfixe qui les distingue des connexions faites dans Map 3D. Les versions 0.23 rangeaient les
     // sources dans Library://MCPMap3D/ : elles restent reconnues.
-    private const string OwnedPrefix = "Library://MCP_";
+    internal const string OwnedPrefix = "Library://MCP_";
     private const string LegacyFolder = "Library://MCPMap3D/";
 
     public static object ListProviders(ToolContext context, JsonElement? args)
@@ -81,7 +81,6 @@ internal static class FdoTools
 
     public static object Connect(ToolContext context, JsonElement? args)
     {
-        _ = context;
         var reader = new ArgReader(args);
         var provider = reader.RequireString("provider").Trim();
         var connectionString = reader.GetString("connectionString");
@@ -126,7 +125,7 @@ internal static class FdoTools
             if (!createFile && !features.TestConnection(provider, Join(parameters)))
                 throw new PipeException(PipeErrorCodes.InvalidParams, "La connexion FDO a été refusée. Vérifiez le fournisseur et la chaîne.");
             if (createFile)
-                CreateSdf(features, resource, provider, Parameter(parameters, "File")!);
+                CreateSdf(features, resource, provider, Parameter(parameters, "File")!, reader, context.Database);
             else
                 Save(ResourceService(), resource, FeatureSourceXml(provider, parameters));
 
@@ -140,6 +139,7 @@ internal static class FdoTools
                 Name = name,
                 Replaced = replace ? true : (bool?)null,
                 CreatedFile = createFile ? Parameter(parameters, "File") : null,
+                CoordinateSystem = createFile ? CoordinateSystemTools.DrawingWkt(context.Database) is null ? "LL84 (le dessin n'a pas de système)" : "système du dessin" : null,
                 Classes = ClassNames(features, resource),
             };
         });
@@ -665,7 +665,7 @@ internal static class FdoTools
         return names;
     }
 
-    private static (string Schema, string ClassName, MgClassDefinition Definition) ResolveClass(
+    internal static (string Schema, string ClassName, MgClassDefinition Definition) ResolveClass(
         AcMapFeatureService features, MgResourceIdentifier resource, string requested)
     {
         var separator = requested.IndexOf(':');
@@ -716,7 +716,7 @@ internal static class FdoTools
         throw new PipeException(PipeErrorCodes.InvalidParams, "Indiquez layer, ou resource et className.");
     }
 
-    private static MgResourceIdentifier ResolveResource(string text)
+    internal static MgResourceIdentifier ResolveResource(string text)
     {
         text = text.Trim();
         if (text.Contains("://", StringComparison.Ordinal) || text.StartsWith("Session:", StringComparison.OrdinalIgnoreCase))
@@ -747,14 +747,53 @@ internal static class FdoTools
     }
 
     /// <summary>Source créée par connect_fdo : directement dans le dossier réservé, sans remontée de chemin.</summary>
-    private static bool IsOwned(string? id) =>
+    internal static bool IsOwned(string? id) =>
         !string.IsNullOrWhiteSpace(id) && !id.Contains("..", StringComparison.Ordinal) &&
         ((id.StartsWith(OwnedPrefix, StringComparison.OrdinalIgnoreCase) && id.IndexOf('/', "Library://".Length) < 0) ||
          (id.StartsWith(LegacyFolder, StringComparison.OrdinalIgnoreCase) && id.IndexOf('/', LegacyFolder.Length) < 0));
 
     private static bool SameResource(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    private static AcMapLayer RequireLayer(string name)
+    /// <summary>Calques FDO de la carte qui affichent cette source.</summary>
+    internal static IEnumerable<AcMapLayer> LayersOf(string sourceId) =>
+        Layers(RequireMap()).Where(layer => SameResource(Safe(layer.GetFeatureSourceId), sourceId)).ToList();
+
+    /// <summary>
+    /// Code du système de coordonnées d'une propriété géométrique, lu dans le contexte spatial qu'elle désigne (le
+    /// seul de la source à défaut) ; null s'il est absent ou inconnu du catalogue.
+    /// </summary>
+    internal static string? SourceSystemCode(MgResourceIdentifier resource, MgGeometricPropertyDefinition geometry)
+    {
+        var association = geometry.GetSpatialContextAssociation();
+        string? wkt = null;
+        var contexts = Features().GetSpatialContexts(resource, false);
+        try
+        {
+            var all = new List<(string Name, string Wkt)>();
+            while (contexts.ReadNext())
+                all.Add((contexts.GetName(), contexts.GetCoordinateSystemWkt()));
+            wkt = (all.FirstOrDefault(context => string.Equals(context.Name, association, StringComparison.OrdinalIgnoreCase)).Wkt
+                   ?? (all.Count == 1 ? all[0].Wkt : null));
+        }
+        finally
+        {
+            contexts.Close();
+        }
+
+        if (string.IsNullOrWhiteSpace(wkt))
+            return null;
+        try
+        {
+            return new MgCoordinateSystemFactory().ConvertWktToCoordinateSystemCode(wkt);
+        }
+        catch (MgException ex)
+        {
+            ex.Dispose();
+            return null;
+        }
+    }
+
+    internal static AcMapLayer RequireLayer(string name)
     {
         var layers = RequireMap().GetLayers();
         if (!layers.Contains(name))
@@ -763,7 +802,7 @@ internal static class FdoTools
             ?? throw new PipeException(PipeErrorCodes.InvalidParams, $"« {name} » n'est pas un calque FDO de la plateforme.");
     }
 
-    private static IEnumerable<AcMapLayer> Layers(AcMapMap map)
+    internal static IEnumerable<AcMapLayer> Layers(AcMapMap map)
     {
         var layers = map.GetLayers();
         for (var i = 0; i < layers.GetCount(); i++)
@@ -811,7 +850,7 @@ internal static class FdoTools
         };
     }
 
-    private static T? Safe<T>(Func<T> read)
+    internal static T? Safe<T>(Func<T> read)
     {
         try
         {
@@ -927,34 +966,72 @@ internal static class FdoTools
         _ => null,
     };
 
-    private static void CreateSdf(AcMapFeatureService features, MgResourceIdentifier resource, string provider, string file)
+    /// <summary>
+    /// SDF vide : une classe (className, « Empty » par défaut) avec un identifiant automatique, une géométrie
+    /// (geometry : point, line, polygon ou any) et les champs demandés (fields), dans le système du dessin s'il en a
+    /// un, en longitude/latitude sinon.
+    /// </summary>
+    private static void CreateSdf(AcMapFeatureService features, MgResourceIdentifier resource, string provider, string file, ArgReader reader, Autodesk.AutoCAD.DatabaseServices.Database database)
     {
         var id = new MgDataPropertyDefinition("Id");
-        id.SetDataType((int)MgPropertyType.Int32);
+        id.SetDataType(MgPropertyType.Int32);
         id.SetNullable(false);
         id.SetAutoGeneration(true);
+        id.SetReadOnly(true);
 
         var geometry = new MgGeometricPropertyDefinition("Geometry");
-        geometry.SetGeometryTypes(7);
+        geometry.SetGeometryTypes((reader.GetString("geometry") ?? "any").ToLowerInvariant() switch
+        {
+            "point" => MgFeatureGeometricType.Point,
+            "line" => MgFeatureGeometricType.Curve,
+            "polygon" => MgFeatureGeometricType.Surface,
+            "any" => MgFeatureGeometricType.Point | MgFeatureGeometricType.Curve | MgFeatureGeometricType.Surface,
+            var other => throw new PipeException(PipeErrorCodes.InvalidParams, $"geometry « {other} » : point, line, polygon ou any."),
+        });
         geometry.SetSpatialContextAssociation("Default");
 
+        var className = SafeName(reader.GetString("className") ?? "Empty");
         var featureClass = new MgClassDefinition();
-        featureClass.SetName("Empty");
+        featureClass.SetName(className);
         featureClass.GetProperties().Add(id);
         featureClass.GetProperties().Add(geometry);
         featureClass.GetIdentityProperties().Add(id);
         featureClass.SetDefaultGeometryPropertyName("Geometry");
 
+        if (reader.TryGet("fields", out var fields))
+        {
+            if (fields.ValueKind != JsonValueKind.Array)
+                throw new PipeException(PipeErrorCodes.InvalidParams, "« fields » attend une liste, par exemple [{\"name\":\"NOM\",\"type\":\"string\"}].");
+            foreach (var field in fields.EnumerateArray())
+            {
+                var fieldReader = new ArgReader(field);
+                var name = SafeName(fieldReader.RequireString("name"));
+                var property = new MgDataPropertyDefinition(name);
+                property.SetDataType((fieldReader.GetString("type") ?? "string").ToLowerInvariant() switch
+                {
+                    "string" or "text" => MgPropertyType.String,
+                    "int" or "integer" => MgPropertyType.Int32,
+                    "double" or "real" => MgPropertyType.Double,
+                    "bool" or "boolean" => MgPropertyType.Boolean,
+                    "date" or "datetime" => MgPropertyType.DateTime,
+                    var other => throw new PipeException(PipeErrorCodes.InvalidParams, $"Champ « {name} » : type « {other} » inconnu (string, int, double, bool, date)."),
+                });
+                property.SetLength(fieldReader.GetInt("length", 255, 1, 4000));
+                property.SetNullable(true);
+                featureClass.GetProperties().Add(property);
+            }
+        }
+
         var schema = new MgFeatureSchema("Default", "Source créée par MCP Map 3D");
         schema.GetClasses().Add(featureClass);
 
-        const string wkt = "GEOGCS[\"LL84\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137.000,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.017453292519943295]]";
-        var parameters = new MgFileFeatureSourceParams(provider, "Default", wkt, schema);
+        const string lonLat = "GEOGCS[\"LL84\",DATUM[\"WGS84\",SPHEROID[\"WGS84\",6378137.000,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.017453292519943295]]";
+        var parameters = new MgFileFeatureSourceParams(provider, "Default", CoordinateSystemTools.DrawingWkt(database) ?? lonLat, schema);
         parameters.SetFileName(file);
         features.CreateFeatureSource(resource, parameters);
     }
 
-    private static void Save(MgResourceService resources, MgResourceIdentifier resource, string xml)
+    internal static void Save(MgResourceService resources, MgResourceIdentifier resource, string xml)
     {
         var bytes = Encoding.UTF8.GetBytes(xml);
         var source = new MgByteSource(bytes, bytes.Length);
@@ -1009,7 +1086,7 @@ internal static class FdoTools
     /// Définition complète d'une classe. Pour certains fournisseurs (WMS), GetClassDefinition renvoie une classe sans
     /// propriétés : DescribeSchema donne alors la vraie, avec sa propriété raster.
     /// </summary>
-    private static MgClassDefinition ClassDefinition(AcMapFeatureService features, MgResourceIdentifier resource, string schema, string className)
+    internal static MgClassDefinition ClassDefinition(AcMapFeatureService features, MgResourceIdentifier resource, string schema, string className)
     {
         var definition = features.GetClassDefinition(resource, schema, className);
         if (definition.GetProperties().GetCount() > 0)
@@ -1153,7 +1230,7 @@ internal static class FdoTools
     }
 
     /// <summary>Source servie par le fournisseur FDO WMS, dont chaque classe porte l'image dans la propriété « Raster ».</summary>
-    private static bool IsWms(MgResourceIdentifier resource)
+    internal static bool IsWms(MgResourceIdentifier resource)
     {
         try
         {
@@ -1168,11 +1245,11 @@ internal static class FdoTools
     }
 
     /// <summary>Nom de la propriété raster de la classe, s'il y en a une.</summary>
-    private static string? RasterProperty(MgClassDefinition definition) =>
+    internal static string? RasterProperty(MgClassDefinition definition) =>
         AllProperties(definition).OfType<MgRasterPropertyDefinition>().FirstOrDefault()?.GetName();
 
     /// <summary>Propriétés de la classe et de ses classes de base (le WMS range FeatId et Raster dans la classe de base).</summary>
-    private static IEnumerable<MgPropertyDefinition> AllProperties(MgClassDefinition definition)
+    internal static IEnumerable<MgPropertyDefinition> AllProperties(MgClassDefinition definition)
     {
         for (var current = definition; current is not null; current = current.GetBaseClassDefinition())
         {
@@ -1343,7 +1420,7 @@ internal static class FdoTools
         return string.IsNullOrWhiteSpace(file) ? "Source" : Path.GetFileNameWithoutExtension(file);
     }
 
-    private static string SafeName(string name)
+    internal static string SafeName(string name)
     {
         var cleaned = new string(name.Trim().Select(character => char.IsLetterOrDigit(character) || character is '_' or '-' ? character : '_').ToArray());
         return string.IsNullOrWhiteSpace(cleaned)
@@ -1381,7 +1458,7 @@ internal static class FdoTools
             : registered;
     }
 
-    private static string FirstLine(string? text)
+    internal static string FirstLine(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return "Map 3D n'a pas pu énumérer les fournisseurs.";
@@ -1389,22 +1466,22 @@ internal static class FdoTools
         return line.Length <= 180 ? line : line[..180];
     }
 
-    private static AcMapMap RequireMap()
+    internal static AcMapMap RequireMap()
     {
         if (!MapInfo.IsAvailable)
             throw new PipeException(PipeErrorCodes.MapUnavailable, "Les connexions FDO requièrent AutoCAD Map 3D.");
         return AcMapMap.GetCurrentMap() ?? throw new PipeException(PipeErrorCodes.MapUnavailable, "Aucune carte FDO n'est ouverte dans ce dessin.");
     }
 
-    private static AcMapFeatureService Features() =>
+    internal static AcMapFeatureService Features() =>
         AcMapServiceFactory.GetService(MgServiceType.FeatureService) as AcMapFeatureService
         ?? throw new PipeException(PipeErrorCodes.MapUnavailable, "Le service d'objets FDO n'est pas disponible.");
 
-    private static MgResourceService ResourceService() =>
+    internal static MgResourceService ResourceService() =>
         AcMapServiceFactory.GetService(MgServiceType.ResourceService) as AcMapResourceService
         ?? throw new PipeException(PipeErrorCodes.MapUnavailable, "Le service de ressources FDO n'est pas disponible.");
 
-    private static object Map(Func<object> action)
+    internal static object Map(Func<object> action)
     {
         try
         {
@@ -1422,7 +1499,7 @@ internal static class FdoTools
         }
     }
 
-    private static string Read(MgByteReader reader)
+    internal static string Read(MgByteReader reader)
     {
         try
         {
@@ -1434,12 +1511,12 @@ internal static class FdoTools
         }
     }
 
-    private static XDocument Xml(string text) =>
+    internal static XDocument Xml(string text) =>
         string.IsNullOrWhiteSpace(text) ? new XDocument(new XElement("empty")) : XDocument.Parse(text);
 
     private static string? Child(XElement? parent, string name) =>
         parent?.Elements().FirstOrDefault(element => element.Name.LocalName.Equals(name, StringComparison.OrdinalIgnoreCase))?.Value;
 
-    private static string Escape(string text) =>
+    internal static string Escape(string text) =>
         text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 }

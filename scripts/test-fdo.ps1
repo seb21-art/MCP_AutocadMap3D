@@ -129,6 +129,54 @@ try {
         if (Test-Path $file) { Remove-Item $file -Force }
     }
 
+    if ($sdf.Count -gt 0) {
+        Write-Host "Écriture dans un SDF et style"
+        $folder = Join-Path $PSScriptRoot '..\artifacts\test'
+        $file = Join-Path $folder "mcp-vannes-$(Get-Random).sdf"
+        $escaped = $file.Replace('\', '\\')
+        $made = Call 'connect_fdo' "{`"provider`":`"OSGeo.SDF`",`"connectionString`":`"File=$escaped`",`"createFile`":true,`"name`":`"McpVannes`",`"className`":`"VANNES`",`"geometry`":`"point`",`"fields`":[{`"name`":`"NOM`"},{`"name`":`"DIAMETRE`",`"type`":`"int`"}]}"
+        if ($null -ne $made) {
+            Check 'classe créée' ($made.classes -contains 'Default:VANNES') 'True'
+            Call 'add_fdo_layer' '{"resource":"McpVannes","className":"VANNES","name":"McpVannes"}' | Out-Null
+            $point = Call 'create_point' '{"points":[[850020,6550010]]}'
+            $features = "[{`"properties`":{`"NOM`":`"V1`",`"DIAMETRE`":100},`"wkt`":`"POINT (850000 6550000)`"}," +
+                "{`"properties`":{`"NOM`":`"V2`",`"DIAMETRE`":150},`"handle`":`"$($point.handles[0])`"}," +
+                "{`"properties`":{`"NOM`":`"V3`",`"DIAMETRE`":100},`"wkt`":`"POINT (850040 6550000)`"}]"
+            $inserted = Call 'insert_fdo_features' "{`"layer`":`"McpVannes`",`"features`":$features}"
+            if ($null -ne $inserted) { Check 'objets ajoutés' $inserted.inserted 3 }
+            Check 'lus dans la source' (Call 'query_fdo' '{"layer":"McpVannes"}').count 3
+            $updated = Call 'update_fdo_features' '{"layer":"McpVannes","filter":"NOM = ''V1''","properties":{"DIAMETRE":200}}'
+            if ($null -ne $updated) { Check 'objet modifié' $updated.updated 1 }
+            $deleted = Call 'delete_fdo_features' '{"layer":"McpVannes","filter":"NOM = ''V3''"}'
+            if ($null -ne $deleted) { Check 'objet supprimé' $deleted.deleted 1 }
+            $left = (Call 'query_fdo' '{"layer":"McpVannes"}').features
+            Check 'valeurs relues' (($left | ForEach-Object { "$($_.NOM)=$($_.DIAMETRE)" }) -join ',') 'V1=200,V2=150'
+            Expect-Error 'suppression sans filtre refusée' 'delete_fdo_features' '{"layer":"McpVannes"}' '*filter*'
+            Expect-Error 'propriété inconnue refusée' 'update_fdo_features' '{"layer":"McpVannes","filter":"NOM = ''V1''","properties":{"COULEUR":"rouge"}}' '*inconnue*'
+            Expect-Error 'filtre sans résultat' 'delete_fdo_features' '{"layer":"McpVannes","filter":"NOM = ''ZZZ''"}' '*Aucun objet*'
+
+            Call 'insert_fdo_features' '{"layer":"McpVannes","features":[{"properties":{"NOM":"V9"},"wkt":"POINT (850060 6550000)"}]}' | Out-Null
+            $undo = Call 'undo' '{"count":1}'
+            foreach ($i in 1..100) { if ((Call '_undo_progress').inProgress -eq 0) { break }; Start-Sleep -Milliseconds 100 }
+            Check 'ajout annulé par undo (U)' (Call 'query_fdo' '{"layer":"McpVannes"}').count 2
+
+            $styled = Call 'set_fdo_layer_style' '{"name":"McpVannes","themeProperty":"DIAMETRE","labelProperty":"NOM","pointSize":10}'
+            if ($null -ne $styled) {
+                Check 'thème par valeur : 2 valeurs + Autres' $styled.rules.Count 3
+                Check 'étiquettes' $styled.labels 'NOM'
+            }
+            $ranges = Call 'set_fdo_layer_style' '{"name":"McpVannes","themeProperty":"DIAMETRE","themeRanges":[{"max":160,"color":"vert"},{"min":160,"color":"#FF0000","label":"gros"}]}'
+            if ($null -ne $ranges) { Check 'thème par plages' (($ranges.rules | ForEach-Object { $_.label }) -join ',') '… à 160,gros,Autres' }
+            Check 'calque toujours affiché après le style' (Call 'list_fdo_layers' '{"names":["McpVannes"]}').count 1
+            Expect-Error 'thème sur une propriété inconnue' 'set_fdo_layer_style' '{"name":"McpVannes","themeProperty":"ZZZ"}' '*inconnue*'
+
+            Call 'erase_entities' "{`"handles`":[`"$($point.handles[0])`"]}" | Out-Null
+            $gone = Call 'remove_fdo_layer' '{"name":"McpVannes","disconnect":true}'
+            if ($null -ne $gone) { Check 'source retirée avec le calque' $gone.disconnected $made.resource }
+        }
+        if (Test-Path $file) { Remove-Item $file -Force }
+    }
+
     $wms = @($providers.providers | Where-Object { $_.name -eq 'OSGeo.WMS' })
     $cs = (Call 'get_coordinate_system').assigned
     if ($wms.Count -gt 0 -and $cs) {
@@ -142,6 +190,8 @@ try {
                 Check 'source dédiée à la couche' ($raster.dedicatedSource -like 'Library://MCP_McpWms_cadastre_WMS*.FeatureSource') 'True'
                 Check 'classe de la source dédiée' $raster.layer.className 'WMSLayers:CADASTRALPARCELS PARCELLAIRE_EXPRESS'
                 Check 'aucun avertissement de Map 3D' "$($raster.warning)" ''
+                Expect-Error 'écriture dans un WMS refusée' 'insert_fdo_features' '{"layer":"McpWms cadastre","features":[{"wkt":"POINT (0 0)"}]}' '*WMS*'
+                Expect-Error 'style d''un WMS refusé' 'set_fdo_layer_style' '{"name":"McpWms cadastre","color":"rouge"}' '*vectoriel*'
                 # Sur un calque raster, ZoomToLayer de Map 3D échoue ou cadre le monde entier : le cadrage passe par
                 # l'étendue de la source ou, à défaut (étendue nulle de la source dédiée), par le domaine du système du dessin.
                 $zoomed = Call 'set_fdo_layer' '{"name":"McpWms cadastre","zoom":true}'

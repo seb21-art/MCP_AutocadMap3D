@@ -158,9 +158,9 @@ internal static class BlockTools
     }
 
     /// <summary>Insère une référence de bloc et crée ses attributs, avec les valeurs fournies ou les valeurs par défaut.</summary>
-    private static BlockReference Insert(
+    internal static BlockReference Insert(
         ToolContext context, ObjectId blockId, Point3d position, Scale3d scale, double rotation,
-        IReadOnlyDictionary<string, string> values, ArgReader reader)
+        IReadOnlyDictionary<string, string> values, ArgReader reader, BlockTableRecord? space = null)
     {
         var transaction = context.RequireTransaction();
         var block = (BlockTableRecord)transaction.GetObject(blockId, OpenMode.ForRead);
@@ -178,7 +178,16 @@ internal static class BlockTools
                 $"Attributs disponibles : {(definitions.Count > 0 ? string.Join(", ", definitions.Select(d => d.Tag)) : "aucun")}.");
 
         var reference = new BlockReference(position, blockId) { ScaleFactors = scale, Rotation = rotation };
-        EditTools.Append(context, reference, reader);
+        if (space is null)
+        {
+            EditTools.Append(context, reference, reader);
+        }
+        else
+        {
+            // Insertion en nombre (import de points) : l'appelant choisit lui-même le calque.
+            space.AppendEntity(reference);
+            transaction.AddNewlyCreatedDBObject(reference, true);
+        }
 
         foreach (var definition in definitions)
         {

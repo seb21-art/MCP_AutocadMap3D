@@ -381,6 +381,55 @@ internal static class MapTools
         };
     }
 
+    /// <summary>
+    /// Données d'objet des points importés : table créée si elle manque (NUMERO, CODE, ALTITUDE), sinon ses champs
+    /// de ces noms sont remplis. À appeler après validation de la géométrie (AfterCommit).
+    /// </summary>
+    internal static void AttachPointData(Database database, string tableName, IReadOnlyList<(ObjectId Id, string? Number, string? Code, double Z)> points)
+    {
+        if (!MapInfo.IsAvailable)
+            throw new PipeException(PipeErrorCodes.MapUnavailable, "Les données d'objet (odTable) requièrent AutoCAD Map 3D.");
+        GuardCore(() =>
+        {
+            AttachPointDataCore(database, tableName, points);
+            return true;
+        }, "rattachement des données d'objet des points");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AttachPointDataCore(Database database, string tableName, IReadOnlyList<(ObjectId Id, string? Number, string? Code, double Z)> points)
+    {
+        var tables = MapInfo.RequireProject(database).ODTables;
+        if (!tables.IsTableDefined(tableName))
+        {
+            var definitions = FieldDefinitions.Create();
+            definitions.AddColumn(FieldDefinition.Create("NUMERO", "Numéro du point", ""), 0);
+            definitions.AddColumn(FieldDefinition.Create("CODE", "Code topographique", ""), 1);
+            definitions.AddColumn(FieldDefinition.Create("ALTITUDE", "Altitude", 0.0), 2);
+            tables.Add(tableName, definitions, "Points topographiques importés", false);
+        }
+
+        var table = tables[tableName];
+        var fields = table.FieldDefinitions;
+        var (number, code, altitude) = (fields.GetColumnIndex("NUMERO"), fields.GetColumnIndex("CODE"), fields.GetColumnIndex("ALTITUDE"));
+        if (number < 0 && code < 0 && altitude < 0)
+            throw new PipeException(PipeErrorCodes.InvalidParams,
+                $"La table « {tableName} » n'a aucun des champs NUMERO, CODE ou ALTITUDE : choisissez une autre table, ou une nouvelle.");
+
+        foreach (var point in points)
+        {
+            var record = Record.Create();
+            table.InitRecord(record);
+            if (number >= 0 && fields[number].Type == DataType.Character)
+                record[number].Assign(point.Number ?? "");
+            if (code >= 0 && fields[code].Type == DataType.Character)
+                record[code].Assign(point.Code ?? "");
+            if (altitude >= 0 && fields[altitude].Type == DataType.Real)
+                record[altitude].Assign(point.Z);
+            table.AddRecord(record, point.Id);
+        }
+    }
+
     private static object CreateOdTableIfMissingCore(ToolContext context, JsonElement? args)
     {
         var name = new ArgReader(args).RequireString("name");

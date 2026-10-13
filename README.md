@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (167 tools: 2D
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (176 tools: 2D
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.29.0, 167 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.30.0, 176 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 167 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 176 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -176,7 +176,8 @@ powershell -ExecutionPolicy Bypass -File scripts\test-plot.ps1        # impressi
 powershell -ExecutionPolicy Bypass -File scripts\test-drawings.ps1    # dessins : créer, enregistrer, ouvrir, fermer (dossier temporaire)
 powershell -ExecutionPolicy Bypass -File scripts\test-xrefs.ps1       # Xref : attacher, décharger, réparer, lier, détacher, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-scene.ps1       # matériaux, lumières, soleil et ambiance de vue, puis annulation
-powershell -ExecutionPolicy Bypass -File scripts\test-fdo.ps1         # connexions FDO : fournisseurs, SDF, WMS, refus, puis déconnexion
+powershell -ExecutionPolicy Bypass -File scripts\test-fdo.ps1         # connexions FDO : fournisseurs, SDF (écriture, style), WMS, refus, puis déconnexion
+powershell -ExecutionPolicy Bypass -File scripts\test-network.ps1     # points topographiques et topologie de réseau, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-gis.ps1         # fichiers SIG : export SHP/MIF/TAB/GML/SDF, réimport, attributs, système, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-batch.ps1       # outil de lot run_batch par le serveur MCP (stdio), puis annulation
 ```
@@ -501,6 +502,7 @@ Système de coordonnées :
 | `search_coordinate_systems` | Recherche dans le catalogue de Map 3D (≈ 8800 systèmes) par mots, code Autodesk ou numéro EPSG |
 | `set_coordinate_system` | Attribue un système au dessin (ou le retire avec un code vide) |
 | `convert_coordinates` | Convertit des points entre le système du dessin (`drawing`), la longitude/latitude WGS84 (`lonlat`), un numéro EPSG ou un code du catalogue, changement de datum compris, sans modifier le dessin ; 1000 points au plus |
+| `reproject_entities` | Reprojette des objets d'un système à un autre (par exemple CC46 vers Lambert-93), changement de datum compris : tout l'espace objet ou les objets filtrés ; `assign` attribue ensuite le système d'arrivée au dessin |
 
 - Attribuer un système **ne déplace pas les objets** : cela déclare dans quel système sont exprimées leurs coordonnées.
 - **Compatibilité** : un système est compatible si les quatre coins de l'étendue du dessin, convertis en
@@ -509,6 +511,10 @@ Système de coordonnées :
 - `set_coordinate_system` **refuse** un système incompatible, sauf avec `force=true` (dessin pas encore
   géoréférencé, par exemple).
 - La première recherche indexe le catalogue en 2 à 4 s ; les suivantes sont immédiates.
+- `reproject_entities` convertit un à un les sommets des points, lignes, polylignes et splines. Les autres objets
+  (cercles, arcs, ellipses, textes, blocs, hachures, cotes) sont déplacés, tournés et mis à l'échelle selon la
+  déformation de la projection en leur centre : un cercle reste un cercle, un texte garde ses proportions. Les
+  altitudes ne changent pas ; les objets des calques verrouillés sont ignorés et signalés.
 - `convert_coordinates` sert par exemple à placer dans le dessin un point donné en longitude/latitude (GPS,
   `search_cadastre_address`). L'altitude est recopiée telle quelle. Un point hors du domaine d'usage d'un des deux
   systèmes est signalé (`warning`) : c'est souvent une longitude et une latitude inversées. Sans Map 3D, seules les
@@ -578,7 +584,7 @@ Connexions FDO (carte courante, plateforme géospatiale).
 | --- | --- |
 | `list_fdo_providers` | Fournisseurs installés (SDF, SHP, SQLite, WFS…) |
 | `list_fdo_connections` | Sources créées par le connecteur (`Library://MCP_…`), et celles déjà affichées ; `includeLibrary` ajoute tout le dépôt Library |
-| `connect_fdo` | Teste une chaîne `Clé=valeur` et enregistre la source à la racine du dépôt (`Library://MCP_nom`), où `MAPCONNECT` la montre ; `createFile` crée un SDF vide ; un nom déjà pris est refusé, sauf `replace` (jamais si un calque l'affiche) |
+| `connect_fdo` | Teste une chaîne `Clé=valeur` et enregistre la source à la racine du dépôt (`Library://MCP_nom`), où `MAPCONNECT` la montre ; `createFile` crée un SDF vide, dans le système du dessin, avec sa classe (`className`), ses champs (`fields`) et son type de géométrie (`geometry`) ; un nom déjà pris est refusé, sauf `replace` (jamais si un calque l'affiche) |
 | `describe_fdo` | Schémas, classes, propriétés et contextes spatiaux |
 | `add_fdo_layer` | Affiche une classe (`Schéma:Classe`) comme calque de la carte : vectoriel, ou raster pour une image ou un WMS |
 | `list_fdo_layers` | Calques FDO : visibilité, source, classe, géométrie |
@@ -587,12 +593,29 @@ Connexions FDO (carte courante, plateforme géospatiale).
 | `remove_fdo_layer` | Retire le calque ; `disconnect` retire aussi la définition devenue inutile, seulement si le connecteur l'a créée |
 | `disconnect_fdo` | Retire la définition d'une source créée par le connecteur qui n'est plus affichée (pas le fichier) |
 | `get_fdo_selection` | Objets FDO de la sélection courante |
+| `insert_fdo_features` | Ajoute des objets dans la source : propriétés, et géométrie en WKT (système de la source) ou reprise d'un objet du dessin (point, bloc, ligne, polyligne, cercle) converti vers le système de la source ; 1000 objets au plus |
+| `update_fdo_features` | Modifie propriétés ou géométrie des objets qui répondent à un filtre FDO |
+| `delete_fdo_features` | Supprime les objets qui répondent à un filtre FDO (`all` pour toute la classe) |
+| `set_fdo_layer_style` | Style d'un calque vectoriel : couleur, contour, épaisseur, transparence, taille des points ; analyse thématique par valeur (`themeValues`, ou valeurs distinctes trouvées) ou par plage (`themeRanges`), plus « Autres » ; étiquettes (`labelProperty`) |
 
 - **Dépôt partagé avec Map 3D** : les sources et définitions créées par le connecteur sont à la racine de `Library://`, comme celles de `MAPCONNECT` (qui n'affiche que la racine), avec le préfixe `MCP_`. Ce dépôt est enregistré dans le dessin. `disconnect_fdo` et `remove_fdo_layer` ne retirent jamais une source sans ce préfixe (connexion faite dans Map 3D, par exemple), ni une source encore affichée ; chaque calque a sa propre définition. Les sources de `Library://MCPMap3D/` des versions 0.23 restent reconnues.
 - **WMS et images** : une classe raster devient un calque de grille (`GridLayerDefinition`), un calque vectoriel ne montrerait rien. Pour un WMS, `add_fdo_layer` crée comme `MAPCONNECT` une source dédiée à la couche (`Library://MCP_<calque>_WMS`) : adresse en `version=1.3.0`, document `config://…` qui déclare la couche (PNG transparent, EPSG:4326, systèmes du serveur recopiés tels quels). Map 3D reprojette l'image dans le système du dessin, qui doit en avoir un.
-- **Pas d'annulation U** : une source ou un calque FDO reste après U. Retirez-les avec `remove_fdo_layer` et `disconnect_fdo`.
-- **Lecture seule des données** : ces outils ne font ni insertion, ni mise à jour, ni suppression d'objets dans la source, ni SQL.
+- **Annulation U** : une source ou un calque FDO reste après U (retirez-les avec `remove_fdo_layer` et `disconnect_fdo`), et un style aussi. Les écritures d'objets (`insert_fdo_features`, `update_fdo_features`, `delete_fdo_features`) sont, elles, enregistrées par Map 3D pour U.
+- **Écriture des données** : les trois outils d'écriture modifient la source elle-même (fichier SDF ou SHP, base de données), pas le dessin. Un filtre est obligatoire pour modifier ou supprimer ; au-delà de 100 objets touchés, `expected` doit donner leur nombre exact. Les sources d'images (WMS, raster) sont refusées. Pas de SQL libre.
+- **Style** : la définition du calque est réécrite ; si elle n'a pas été créée par le connecteur (calque ajouté par `MAPCONNECT`), elle est d'abord copiée en `Library://MCP_<calque>_style`, l'originale reste intacte. Hauteur des étiquettes en points, épaisseurs en mm.
 - Les mots de passe des sources déjà stockées ne sont pas renvoyés.
+
+Points topographiques et topologie de réseau :
+
+| Outil | Rôle |
+| --- | --- |
+| `import_points` | Importe un fichier de points (CSV, TXT, XYZ) : séparateur détecté (`;`, tabulation, `\|`, `,` ou espaces), virgule décimale acceptée, en-tête ignoré, lignes illisibles signalées ; colonnes par `columns` (P numéro, X ou E, Y ou N, Z, D code, `-` ignorée ; `PXYZD` par défaut) ; points AutoCAD ou bloc à attributs (`block`, `attributes` : étiquette → colonne) ; un calque par code (`layerFromCode`) ; numéro, code et altitude en données d'objet (`odTable`) ; coordonnées d'un autre système converties (`from`, par exemple `lonlat`) ; 100 000 points au plus |
+| `create_network_topology` | Crée une topologie de réseau Map 3D à partir des courbes (liens) choisies par calque, type, `where` ou handles, et en option de points ou blocs (nœuds, `nodeLayers`) ; `tolerance` relie les extrémités proches |
+| `trace_network` | Analyse une topologie : `path` (plus court chemin), `flood` (tout ce qui est relié, `maxDistance`), `upstream` (chemin vers la source), `downstream` (ce qui n'est plus alimenté depuis la source si le point est coupé), `isolated` (ce que coupent les vannes `closed`) ; renvoie liens, nœuds et longueur, `select` les sélectionne dans AutoCAD |
+| `delete_topology` | Supprime une topologie ; les objets du dessin restent |
+
+- **Analyses de réseau** : le graphe vient de la topologie de Map 3D (nœuds et liens, extrémités reliées à la tolérance) ; les parcours sont calculés par le connecteur, sur la longueur des liens. `downstream` et `isolated` conviennent aux réseaux maillés : est « aval » ce qui perd toute liaison avec la source. Les points `start`, `end`, `source` et `closed` sont rattachés au nœud le plus proche (`startSnapDistance` donne l'écart).
+- **Annulation** : un import de points et la création d'une topologie s'annulent en une étape avec U. Map 3D requis pour la topologie et les données d'objet ; l'import de points fonctionne aussi sans Map 3D (Lambert-93 pour `from`).
 
 Fichiers SIG (API ImportExport de Map 3D, comme `MAPIMPORT` et `MAPEXPORT`). Contrairement aux connexions FDO, les objets deviennent des objets AutoCAD du dessin.
 
