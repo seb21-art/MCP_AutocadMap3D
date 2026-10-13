@@ -41,4 +41,45 @@ public sealed class MapTools(PluginClient plugin)
         CancellationToken cancellationToken = default) =>
         plugin.CallForTextAsync("set_od_value",
             new { handles, table, field, value, createRecord }, cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "create_od_table", Title = "Créer une table de données d'objet",
+        ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false)]
+    [Description("Crée une table de données d'objet (OD) Map 3D, avec ses champs. set_od_value attache ensuite les " +
+                 "valeurs aux objets. Refusé si la table existe déjà (edit_od_table la modifie).")]
+    public Task<string> CreateOdTable(
+        [Description("Nom de la table, par exemple CONDUITES (lettres, chiffres et _).")] string name,
+        [Description("Champs de la table, un au moins.")] OdFieldInput[] fields,
+        [Description("Description de la table.")] string? description = null,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("create_od_table", new { name, fields, description }, cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "edit_od_table", Title = "Modifier une table de données d'objet",
+        ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+    [Description("Renomme une table de données d'objet, lui ajoute des champs (valeur par défaut sur les objets " +
+                 "existants) ou lui en retire. Retirer un champ efface ses valeurs sur tous les objets.")]
+    public Task<string> EditOdTable(
+        [Description("Nom de la table.")] string table,
+        [Description("Nouveau nom.")] string? newName = null,
+        [Description("Champs à ajouter en fin de table.")] OdFieldInput[]? addFields = null,
+        [Description("Noms des champs à retirer.")] string[]? removeFields = null,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("edit_od_table", new { table, newName, addFields, removeFields }, cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "delete_od_table", Title = "Supprimer une table de données d'objet",
+        ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+    [Description("Supprime une table de données d'objet et, avec elle, ses enregistrements sur les objets (les objets " +
+                 "restent). Refusé si des objets en portent encore, sauf avec force.")]
+    public Task<string> DeleteOdTable(
+        [Description("Nom de la table.")] string table,
+        [Description("Supprimer même si des objets portent des données de la table : seulement si l'utilisateur le demande.")] bool force = false,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("delete_od_table", new { table, force = force ? true : (bool?)null },
+            busyTimeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
 }
+
+/// <summary>Champ de table de données d'objet, pour create_od_table et edit_od_table.</summary>
+public sealed record OdFieldInput(
+    [property: Description("Nom du champ, par exemple DIAMETRE.")] string Name,
+    [property: Description("Type : Character (texte, défaut), Integer, Real ou Point.")] string? Type = null,
+    [property: Description("Description du champ.")] string? Description = null,
+    [property: Description("Valeur par défaut, du type du champ (point : [x, y, z]).")] JsonElement? Default = null);

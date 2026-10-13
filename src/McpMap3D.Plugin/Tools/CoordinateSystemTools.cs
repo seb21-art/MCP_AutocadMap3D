@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.Geometry;
 using Autodesk.Gis.Map.CoordinateSystem;
 using McpMap3D.Shared;
 using OSGeo.MapGuide;
@@ -210,6 +211,159 @@ internal static class CoordinateSystemTools
         {
             system.Dispose();
         }
+    }
+
+    private const int MaxConvertedPoints = 1000;
+
+    /// <summary>
+    /// Conversion de points entre le système du dessin, la longitude/latitude WGS84 et tout système du catalogue
+    /// (code ou EPSG), avec le changement de datum que demande le passage d'un système à l'autre. L'altitude est
+    /// recopiée telle quelle. Sans Map 3D : entre longitude/latitude et Lambert-93 seulement.
+    /// </summary>
+    public static object ConvertCoordinates(ToolContext context, JsonElement? args)
+    {
+        var reader = new ArgReader(args);
+        var points = reader.RequirePoints("points", 1);
+        if (points.Count > MaxConvertedPoints)
+            throw new PipeException(PipeErrorCodes.InvalidParams, $"Trop de points ({points.Count}) : {MaxConvertedPoints} au maximum par appel.");
+        var from = reader.RequireString("from").Trim();
+        var to = reader.RequireString("to").Trim();
+        return MapInfo.IsAvailable
+            ? ConvertCoordinatesMap3D(context.Database, points, from, to)
+            : ConvertCoordinatesClassic(points, from, to);
+    }
+
+    private static object ConvertCoordinatesClassic(IReadOnlyList<Point3d> points, string from, string to)
+    {
+        static bool IsLonLat(string name) => name.ToLowerInvariant() switch
+        {
+            "lonlat" or "wgs84" or "ll84" or "epsg:4326" or "4326" => true,
+            "drawing" or "lambert93" or "epsg:2154" or "2154" => false,
+            _ => throw new PipeException(PipeErrorCodes.InvalidParams,
+                $"« {name} » : sans Map 3D, seules les conversions entre lonlat et Lambert-93 (drawing) sont disponibles."),
+        };
+
+        var (fromLonLat, toLonLat) = (IsLonLat(from), IsLonLat(to));
+        var converted = points.Select(point =>
+        {
+            var (x, y) = fromLonLat == toLonLat ? (point.X, point.Y)
+                : fromLonLat ? Lambert93.ToLambert93(point.X, point.Y)
+                : Lambert93.ToWgs84(point.X, point.Y);
+            return Output(x, y, point.Z, toLonLat);
+        }).ToList();
+        return new
+        {
+            From = fromLonLat ? "LL84" : "Lambert93",
+            To = toLonLat ? "LL84" : "Lambert93",
+            Points = converted,
+            Note = "AutoCAD sans Map 3D : le dessin est supposé en Lambert-93 (EPSG:2154).",
+        };
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static object ConvertCoordinatesMap3D(Database database, IReadOnlyList<Point3d> points, string from, string to)
+    {
+        var factory = new MgCoordinateSystemFactory();
+        var source = OpenSystem(factory, database, from);
+        var target = OpenSystem(factory, database, to);
+        try
+        {
+            var transform = factory.GetTransform(source, target);
+            var angular = target.GetUnits().Contains("DEG", StringComparison.OrdinalIgnoreCase);
+            var converted = new List<double[]>(points.Count);
+            var outside = 0;
+            for (var index = 0; index < points.Count; index++)
+            {
+                var point = points[index];
+                MgCoordinate coordinate;
+                try
+                {
+                    coordinate = transform.Transform(point.X, point.Y);
+                }
+                catch (MgException ex)
+                {
+                    ex.Dispose();
+                    throw new PipeException(PipeErrorCodes.InvalidParams,
+                        $"Le point {index + 1} ({Format.Number(point.X)}, {Format.Number(point.Y)}) ne se convertit pas de « {source.GetCsCode()} » " +
+                        $"vers « {target.GetCsCode()} » : vérifiez le système d'origine (et l'ordre longitude puis latitude).");
+                }
+
+                var (x, y) = (coordinate.GetX(), coordinate.GetY());
+                coordinate.Dispose();
+                if (!double.IsFinite(x) || !double.IsFinite(y))
+                    throw new PipeException(PipeErrorCodes.InvalidParams,
+                        $"Le point {index + 1} ({Format.Number(point.X)}, {Format.Number(point.Y)}) sort du domaine de conversion.");
+
+                if (!InDomain(source, point.X, point.Y) || !InDomain(target, x, y))
+                    outside++;
+                converted.Add(Output(x, y, point.Z, angular));
+            }
+
+            return new
+            {
+                From = Brief(source),
+                To = Brief(target),
+                Points = converted,
+                Warning = outside > 0
+                    ? $"{outside} point(s) hors du domaine d'usage d'un des deux systèmes : résultat peu fiable. " +
+                      "Vérifiez le système d'origine, et l'ordre longitude puis latitude."
+                    : null,
+            };
+        }
+        finally
+        {
+            source.Dispose();
+            target.Dispose();
+        }
+    }
+
+    /// <summary>drawing, lonlat (WGS84), EPSG:n ou numéro EPSG, ou code du catalogue.</summary>
+    private static MgCoordinateSystem OpenSystem(MgCoordinateSystemFactory factory, Database database, string name)
+    {
+        var lower = name.ToLowerInvariant();
+        string? code = lower switch
+        {
+            "drawing" => AcMapCoordsysCore.GetCoordinateSystem(database) is { Length: > 0 } drawing ? drawing
+                : throw new PipeException(PipeErrorCodes.InvalidParams,
+                    "Le dessin n'a pas de système de coordonnées : attribuez-en un avec set_coordinate_system, ou nommez le système d'origine."),
+            "lonlat" or "wgs84" or "ll84" => "LL84",
+            _ when int.TryParse(lower.StartsWith("epsg:") ? lower[5..] : lower, out var epsg) => CodeForEpsg(epsg)
+                ?? throw new PipeException(PipeErrorCodes.InvalidParams, $"Aucun système du catalogue ne correspond à l'EPSG {epsg}."),
+            _ => name,
+        };
+        return TryCreate(factory, code)
+            ?? throw new PipeException(PipeErrorCodes.InvalidParams, $"Système de coordonnées « {name} » inconnu (voir search_coordinate_systems).");
+    }
+
+    private static bool InDomain(MgCoordinateSystem system, double x, double y)
+    {
+        try
+        {
+            var lonLat = system.ConvertToLonLat(x, y);
+            var (lon, lat) = (lonLat.GetX(), lonLat.GetY());
+            lonLat.Dispose();
+            return IsInDomain(system, lon, lat);
+        }
+        catch (MgException ex)
+        {
+            ex.Dispose();
+            return false;
+        }
+    }
+
+    private static object Brief(MgCoordinateSystem system)
+    {
+        var epsg = system.GetEpsgCode();
+        return new { Code = system.GetCsCode(), Description = system.GetDescription(), Epsg = epsg > 0 ? epsg : (int?)null };
+    }
+
+    /// <summary>Degrés à 9 décimales (moins d'un millimètre), unités linéaires au dixième de millimètre ; Z s'il n'est pas nul.</summary>
+    private static double[] Output(double x, double y, double z, bool angular)
+    {
+        var decimals = angular ? 9 : 4;
+        return z == 0
+            ? [Math.Round(x, decimals), Math.Round(y, decimals)]
+            : [Math.Round(x, decimals), Math.Round(y, decimals), Format.Number(z)];
     }
 
     /// <summary>Le point (longitude, latitude) est-il dans le domaine d'usage du système ?</summary>

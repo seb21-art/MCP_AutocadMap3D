@@ -29,6 +29,21 @@ public sealed class CoordinateSystemTools(PluginClient plugin)
         plugin.CallForTextAsync("search_coordinate_systems", new { query, limit, compatibleOnly },
             busyTimeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
 
+    [McpServerTool(Name = "convert_coordinates", Title = "Convertir des coordonnées",
+        ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Convertit des points d'un système de coordonnées à un autre, sans modifier le dessin : par exemple " +
+                 "une longitude/latitude (GPS, search_cadastre_address) vers le système du dessin pour y placer un " +
+                 "objet, ou des coordonnées CC46 vers Lambert-93. Le changement de datum est pris en compte ; " +
+                 "l'altitude est recopiée telle quelle. Sans Map 3D : entre lonlat et Lambert-93 seulement.")]
+    public Task<string> ConvertCoordinates(
+        [Description("Points [[x,y],…] ou [[x,y,z],…], 1000 au plus. En longitude/latitude : [longitude, latitude].")] double[][] points,
+        [Description("Système d'origine : drawing (système du dessin), lonlat (WGS84), EPSG:n ou numéro EPSG, ou code " +
+                     "Autodesk (voir search_coordinate_systems).")] string from,
+        [Description("Système d'arrivée, mêmes valeurs que from.")] string to,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("convert_coordinates", new { points, from, to },
+            busyTimeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
+
     [McpServerTool(Name = "set_coordinate_system", Title = "Attribuer un système de coordonnées au dessin",
         ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Attribue au dessin un système de coordonnées (code Autodesk, trouvé avec " +

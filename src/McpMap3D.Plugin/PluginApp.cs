@@ -33,6 +33,7 @@ public sealed class PluginApp : IExtensionApplication
             Server = new PipeServer(new RequestProcessor(ToolRegistry.CreateDefault(), Dispatcher));
             Server.Start();
             CommandTrace.Start();
+            UndoJournal.Start();
 
             WriteMessage(Server.State == PipeServerState.Listening
                 ? $"\nMCP Map 3D {Version} chargé. Tapez MCPMAP_STATUS pour le diagnostic.\n"
