@@ -61,6 +61,40 @@ internal static class MapTools
         return CreateOdLookupCore(database);
     }
 
+    /// <summary>Toutes les données d'objet d'un objet : table -> champ -> valeur (export, publication).</summary>
+    internal static Func<ObjectId, Dictionary<string, Dictionary<string, object?>>> CreateOdRecordReader(Database database)
+    {
+        if (!MapInfo.IsAvailable)
+            throw new PipeException(PipeErrorCodes.MapUnavailable, "Les données d'objet requièrent AutoCAD Map 3D.");
+        return CreateOdRecordReaderCore(database);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static Func<ObjectId, Dictionary<string, Dictionary<string, object?>>> CreateOdRecordReaderCore(Database database)
+    {
+        var tables = MapInfo.RequireProject(database).ODTables;
+        return id =>
+        {
+            var result = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                using var attached = OpenRecords(tables, id, OdOpenMode.OpenForRead);
+                // L'énumérateur de l'API Map lève une exception si la collection est vide.
+                foreach (Record record in attached.Count > 0 ? attached.Cast<Record>() : [])
+                {
+                    if (!result.ContainsKey(record.TableName))
+                        result[record.TableName] = ReadValues(tables[record.TableName], record);
+                }
+            }
+            catch (MapException ex)
+            {
+                throw Translate(ex, $"lecture des données d'objet de {id.Handle}");
+            }
+
+            return result;
+        };
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static Func<ObjectId, string, string, object?> CreateOdLookupCore(Database database)
     {

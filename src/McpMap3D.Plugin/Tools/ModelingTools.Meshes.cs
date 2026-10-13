@@ -155,6 +155,41 @@ internal static partial class ModelingTools
         if (points.Count > MaxTerrainPoints)
             throw new PipeException(PipeErrorCodes.InvalidParams, $"Trop de points ({points.Count}) : {MaxTerrainPoints} au maximum.");
 
+        // Points d'un autre système (MNT de l'IGN en longitude/latitude) : système attribué au dessin s'il n'en a
+        // pas, puis conversion ; les altitudes restent.
+        string? assigned = null;
+        if (reader.GetString("assignCoordinateSystem") is { Length: > 0 } requested && CoordinateSystemTools.DrawingWkt(context.Database) is null)
+        {
+            var system = requested.StartsWith("EPSG:", StringComparison.OrdinalIgnoreCase) && int.TryParse(requested[5..], out var epsg)
+                ? epsg == 2154 ? "Lambert93" : CoordinateSystemTools.CodeForEpsg(epsg)
+                    ?? throw new PipeException(PipeErrorCodes.InvalidParams, $"Aucun système du catalogue ne correspond à {requested}.")
+                : requested;
+            CoordinateSystemTools.AssignDrawingSystem(context.Database, system);
+            assigned = system;
+        }
+
+        if (reader.GetString("from") is { Length: > 0 } from && !from.Equals("drawing", StringComparison.OrdinalIgnoreCase))
+        {
+            using var transform = CoordinateSystemTools.CreateTransform(context.Database, from, "drawing");
+            points = points.Select(point =>
+            {
+                var (x, y) = transform.Apply(point.X, point.Y);
+                return new Point3d(x, y, point.Z);
+            }).ToList();
+        }
+
+        if (reader.GetBool("createLayer", false) && reader.GetString("layer") is { } layerName)
+        {
+            var layers = (LayerTable)transaction.GetObject(context.Database.LayerTableId, OpenMode.ForRead);
+            if (!layers.Has(layerName))
+            {
+                layers.UpgradeOpen();
+                var layer = new LayerTableRecord { Name = layerName };
+                layers.Add(layer);
+                transaction.AddNewlyCreatedDBObject(layer, true);
+            }
+        }
+
         var maxEdgeLength = reader.GetDouble("maxEdgeLength", 0);
         if (maxEdgeLength < 0)
             throw new PipeException(PipeErrorCodes.InvalidParams, "« maxEdgeLength » ne peut pas être négatif (0 : aucune limite).");
@@ -218,6 +253,7 @@ internal static partial class ModelingTools
         var appended = kind == "polyface"
             ? AppendPolyFace(context, reader, vertices, corners)
             : EditTools.Append(context, NewMesh(vertices, TriangleFaces(corners), 0), reader);
+        var contours = reader.GetDouble("contourInterval", 0) > 0 ? TerrainTools.DrawContours(context, new Tin(vertices, corners), reader) : null;
 
         return new
         {
@@ -231,6 +267,8 @@ internal static partial class ModelingTools
             MaxZ = Format.Number(vertices.Max(point => point.Z)),
             PlanArea = Format.Number(planArea),
             Area = Format.Number(area),
+            Contours = contours,
+            CoordinateSystemAssigned = assigned,
         };
     }
 
