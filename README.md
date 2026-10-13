@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (176 tools: 2D
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (181 tools: 2D
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.31.0, 176 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.32.0, 181 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 176 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 181 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -178,6 +178,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test-xrefs.ps1       # Xref : a
 powershell -ExecutionPolicy Bypass -File scripts\test-scene.ps1       # matériaux, lumières, soleil et ambiance de vue, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-fdo.ps1         # connexions FDO : fournisseurs, SDF (écriture, style), WMS, refus, puis déconnexion
 powershell -ExecutionPolicy Bypass -File scripts\test-network.ps1     # points topographiques et topologie de réseau, puis annulation
+powershell -ExecutionPolicy Bypass -File scripts\test-terrain.ps1     # MNT, courbes, analyses, images, GeoJSON/KML (Internet pour le MNT de l'IGN), puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-gis.ps1         # fichiers SIG : export SHP/MIF/TAB/GML/SDF, réimport, attributs, système, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-batch.ps1       # outil de lot run_batch par le serveur MCP (stdio), puis annulation
 ```
@@ -288,7 +289,7 @@ Modélisation 3D :
 | `create_mesh` | Maillage par sommets et faces, avec niveau de lissage |
 | `convert_mesh` | Maillages convertis en solides ou en surfaces, et solides, surfaces ou régions en maillages |
 | `smooth_mesh` | Niveau de lissage de maillages, de 0 à 4 |
-| `create_terrain_mesh` | Maillage de terrain (MNT) par triangulation de Delaunay de points cotés : tableau, points, blocs, lignes ou polylignes par calque ; grands triangles retirés au besoin ; maillage ou polyface |
+| `create_terrain_mesh` | Maillage de terrain (MNT) par triangulation de Delaunay de points cotés : tableau, points, blocs, lignes ou polylignes par calque ; grands triangles retirés au besoin ; maillage ou polyface ; points d'un autre système (`from`), calque créé au besoin (`createLayer`), courbes de niveau dans la même étape (`contourInterval`) |
 | `export_stl` | Export STL de solides, ramenés à l'origine par défaut (impression 3D) |
 | `export_sat` | Export ACIS (SAT) de solides, surfaces et régions |
 | `import_sat` | Import d'un fichier ACIS texte (SAT) |
@@ -604,6 +605,21 @@ Connexions FDO (carte courante, plateforme géospatiale).
 - **Écriture des données** : les trois outils d'écriture modifient la source elle-même (fichier SDF ou SHP, base de données), pas le dessin. Un filtre est obligatoire pour modifier ou supprimer ; au-delà de 100 objets touchés, `expected` doit donner leur nombre exact. Les sources d'images (WMS, raster) sont refusées. Pas de SQL libre.
 - **Style** : la définition du calque est réécrite ; si elle n'a pas été créée par le connecteur (calque ajouté par `MAPCONNECT`), elle est d'abord copiée en `Library://MCP_<calque>_style`, l'originale reste intacte. Hauteur des étiquettes en points, épaisseurs en mm.
 - Les mots de passe des sources déjà stockées ne sont pas renvoyés.
+
+Terrain, images et publication :
+
+| Outil | Rôle |
+| --- | --- |
+| `import_terrain` | MNT du RGE ALTI de l'IGN (Géoplateforme, France entière) sur une grille régulière (`step`, 5 m par défaut), autour d'une adresse ou d'un point lon/lat (`size`), sur un rectangle lon/lat (`bbox`) ou l'emprise du dessin (`extent`) ; maillé dans le système du dessin (celui de la zone lui est attribué s'il n'en a pas), courbes de niveau en option ; 100 000 points au plus |
+| `create_contours` | Courbes de niveau d'un maillage de terrain : polylignes à leur altitude, maîtresses toutes les `majorEvery` sur leur propre calque |
+| `analyze_terrain` | Sans modifier le dessin : `elevation` (altitude en des points), `profile` (profil en long le long d'une courbe ou de points : distance, x, y, z, dénivelés, pente maximale), `volume` (déblai et remblai dans un contour fermé par rapport à une altitude de référence), `slope` (pentes moyenne et maximale, surfaces par classe) |
+| `attach_image` | Insère une image raster (TIF, JPG, PNG…) d'après son fichier monde (`.tfw`, `.jgw`, `.pgw`, `.wld`…) ou ses balises GeoTIFF, ou à une position et une largeur données ; fichier lié, pas incorporé |
+| `export_geodata` | Publie des objets en GeoJSON, KML ou KMZ, en WGS84 : points, blocs et textes en points, courbes en lignes, courbes fermées en polygones, avec calque, texte, attributs et données d'objet ; mêmes filtres que `list_entities` |
+
+- **MNT de l'IGN** : altitudes demandées par lots de 5000 points (environ 3 s par lot) ; les points sans donnée (mer, étranger) sont ignorés, et les triangles plus longs que trois pas retirés. Un km² au pas de 5 m (40 000 points) prend environ 25 s.
+- **Analyses** : le terrain est lu dans le maillage (maillage AutoCAD ou polyface), quel que soit l'outil qui l'a créé. Les cubatures se calculent sur une grille d'environ 40 000 mailles (`cellSize` pour la régler).
+- **Images et U** : avec le réglage par défaut de `MAPIOPTIONS`, Map 3D demande dans une boîte de dialogue (« Erasing Image ») s'il faut dissocier une image dont la dernière occurrence disparaît, y compris quand U annule `attach_image` ou quand `erase_entities` efface l'image. AutoCAD reste bloqué jusqu'à la réponse, et le connecteur répond qu'AutoCAD est occupé. Pour ne plus voir la question, réglez la dissociation des images dans `MAPIOPTIONS`.
+- **Publication** : GeoJSON et KML sont des formats texte lisibles par les cartes web, QGIS et Google Earth ; KMZ est un KML compressé. Pour le DWF, utilisez `plot_drawing` avec le pilote `DWF6 ePlot.pc3`. La publication vers ArcGIS Online ou MapGuide n'est pas prise en charge (compte et serveur requis).
 
 Points topographiques et topologie de réseau :
 

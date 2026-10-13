@@ -74,7 +74,12 @@ public sealed partial class ModelingTools
                      "anciennes versions et la plupart des logiciels, 32 767 sommets au plus).")] string meshType = "mesh",
         [Description(LayerHelp)] string? layer = null,
         [Description(ColorHelp)] string? color = null,
+        [Description("Système des points donnés en tableau, s'il diffère du dessin : lonlat, EPSG:n ou code Autodesk.")] string? from = null,
+        [Description("Créer le calque layer s'il n'existe pas.")] bool createLayer = false,
+        [Description("Équidistance des courbes de niveau à dessiner aussitôt (aucune si omis).")] double? contourInterval = null,
+        [Description("Une courbe sur majorEvery est maîtresse (5 par défaut).")] int majorEvery = 5,
         CancellationToken cancellationToken = default) =>
         plugin.CallForTextAsync("create_terrain_mesh",
-            new { points, handles, layers, maxEdgeLength, meshType, layer, color }, cancellationToken: cancellationToken);
+            new { points, handles, layers, maxEdgeLength, meshType, layer, color, from, createLayer = createLayer ? true : (bool?)null, contourInterval, majorEvery },
+            busyTimeout: TimeSpan.FromMinutes(2), cancellationToken: cancellationToken);
 }

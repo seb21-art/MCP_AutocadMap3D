@@ -31,7 +31,7 @@ Code 100 % original : ne jamais décompiler, copier ou réutiliser le code d'un 
 - Dossier `MCPMap3D.bundle` contenant un `PackageContents.xml` avec un bloc `Components` par version : `Contents/2026/` (`SeriesMin="R25.1" SeriesMax="R25.1"`) et `Contents/2027/` (`SeriesMin="R26.0" SeriesMax="R26.0"`), `Platform="Map|Civil3D|AutoCAD"` et `LoadOnAutoCADStartup="True"`.
 - Script PowerShell d'installation vers `%APPDATA%\Autodesk\ApplicationPlugins` (pas de droits administrateur), qui compile une DLL pour chaque version d'AutoCAD installée.
 
-## Outils (176)
+## Outils (181)
 Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Server/Tools/*.cs` (`[McpServerTool]`), et enregistré côté plug-in dans `src/McpMap3D.Plugin/Tools/ToolRegistry.cs` avec son accès au dessin (`None`, `Read`, `Write`, `Document`, `Background` hors du thread principal). Le README décrit chaque outil et ses limites. Seule exception : `run_batch`, propre au serveur (`Tools/BatchTools.cs`), qui appelle les autres outils par le SDK MCP.
 - Système : `ping`, `run_batch` (lot d'appels d'outils, 50 au plus), `undo` (derniers appels du connecteur seulement, sauf `force`)
 - Dessins : `list_drawings`, `new_drawing`, `open_drawing`, `save_drawing`, `close_drawing` (contexte application, hors annulation U)
@@ -43,6 +43,7 @@ Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Serv
 - Cotation : `list_dimension_styles`, `set_dimension_style`, `set_dimension_format`, `get_dimension_format`
 - 3D : `create_box`, `create_wedge`, `create_cylinder`, `create_sphere`, `create_torus`, `create_pyramid`, `create_3d_polyline`, `create_helix`, `extrude`, `revolve`, `loft`, `boolean_solids`, `rotate_entities`, `mirror_3d`, `align_3d`, `create_region`, `slice_solid`, `get_section`, `check_interference`, `get_solid_properties`, `get_solid_topology`, `fillet_edges`, `chamfer_edges`, `shell_solid`, `edit_solid_faces`, `imprint_solid`, `clean_solid`, `thicken_surface`, `separate_solid`, `buildings_to_solids`, `set_view`, `capture_view`
 - Surfaces et maillages : `create_surface`, `sculpt_solid`, `project_curves`, `create_mesh`, `convert_mesh`, `smooth_mesh`, `create_terrain_mesh` (MNT par triangulation de Delaunay)
+- Terrain, images et publication : `import_terrain` (MNT RGE ALTI de l'IGN par l'API d'altimétrie de la Géoplateforme), `create_contours`, `analyze_terrain` (altitude, profil, cubatures, pentes), `attach_image` (fichier monde ou GeoTIFF), `export_geodata` (GeoJSON, KML, KMZ en WGS84)
 - Échanges 3D : `export_stl`, `export_sat`, `import_sat`, `import_3d_model` (STEP et IGES : conversion par `acTranslators.exe`, le traducteur de la commande IMPORT, dans un outil plug-in `Background` hors du thread principal, puis insertion du DWG en bloc)
 - Map 3D : `list_od_tables`, `get_od_records` (par handle), `set_od_value`, `create_od_table`, `edit_od_table`, `delete_od_table`
 - Systèmes de coordonnées : `get_coordinate_system`, `search_coordinate_systems`, `set_coordinate_system`, `convert_coordinates`, `reproject_entities`
@@ -59,7 +60,7 @@ Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Serv
 ## Construire et tester
 - `scripts\install.ps1` construit et installe le plug-in (AutoCAD fermé) et le serveur ; `scripts\register.ps1` l'enregistre dans Claude Code et Claude Desktop.
 - Tests unitaires : `dotnet test tests\McpMap3D.Tests` (projection Lambert-93, triangulation de Delaunay du maillage de terrain, calage du soleil).
-- Tests de bout en bout, AutoCAD lancé avec une copie de dessin ouverte : `scripts\test-*.ps1` (`test-tools`, `test-editing`, `test-drafting`, `test-dimensions`, `test-modeling`, `test-layouts`, `test-plot`, `test-drawings`, `test-xrefs`, `test-scene`, `test-fdo`, `test-network`, `test-gis`, `test-batch`, `test-cadastre`, `test-mcp`, `test-pipe`, `smoke-test`). Ceux qui modifient le dessin annulent leurs modifications avec U. Les connexions FDO ne sont pas annulées par U : `test-fdo.ps1` les retire lui-même.
+- Tests de bout en bout, AutoCAD lancé avec une copie de dessin ouverte : `scripts\test-*.ps1` (`test-tools`, `test-editing`, `test-drafting`, `test-dimensions`, `test-modeling`, `test-layouts`, `test-plot`, `test-drawings`, `test-xrefs`, `test-scene`, `test-fdo`, `test-network`, `test-terrain`, `test-gis`, `test-batch`, `test-cadastre`, `test-mcp`, `test-pipe`, `smoke-test`). Ceux qui modifient le dessin annulent leurs modifications avec U. Les connexions FDO ne sont pas annulées par U : `test-fdo.ps1` les retire lui-même.
 - Un nouvel outil s'accompagne de ses contrôles dans le script de test de sa famille, de sa ligne dans le README et d'une montée de version.
 
 ## Règles
