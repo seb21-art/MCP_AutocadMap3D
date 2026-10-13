@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (160 tools: 2D
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (167 tools: 2D
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.28.0, 160 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.29.0, 167 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 160 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 167 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -205,6 +205,7 @@ par le client (Claude Desktop : journaux `mcp-server-map3d.log`).
 | Outil | Rôle |
 | --- | --- |
 | `ping` | Vérifie qu'AutoCAD est lancé, que le plug-in répond et que le thread principal est disponible |
+| `undo` | Annule les N derniers appels de modification du connecteur (U d'AutoCAD), et répond une fois l'annulation faite. Refuse de remonter au-delà d'une commande lancée entre-temps dans AutoCAD, à la main ou par une autre application, sauf `force` |
 | `run_batch` | Enchaîne jusqu'à 50 appels aux autres outils en un seul appel, dans l'ordre ; arrêt à la première erreur par défaut (`stopOnError`), résultat ou erreur de chaque appel. Propre au serveur MCP : chaque appel suit le même chemin qu'un appel direct et reste une étape d'annulation. Un appel ne peut pas reprendre le résultat d'un appel précédent du même lot |
 | `list_drawings` | Dessins ouverts : nom, chemin, dessin actif, lecture seule, modifications non enregistrées |
 | `new_drawing` | Crée un dessin à partir d'un gabarit et l'active, enregistré aussitôt en .dwg si un chemin est donné |
@@ -213,7 +214,9 @@ par le client (Claude Desktop : journaux `mcp-server-map3d.log`).
 | `close_drawing` | Ferme un dessin ; refuse s'il a des modifications non enregistrées, sauf `save` ou `discardChanges` |
 | `get_drawing_info` | Fichier, unités, étendue, calque et espace courants, présentations, infos Map 3D |
 | `list_layers` | Calques, avec couleur, type de ligne, épaisseur, états et description |
-| `list_entities` | Objets filtrés par calque, type et espace, paginés, avec handle et résumé par type (contenu des cellules pour un tableau, renflements d'une polyligne avec la géométrie) |
+| `list_entities` | Objets filtrés par calque, type, espace et conditions `where` (voir ci-dessous), ou pris dans la sélection courante, paginés, avec handle et résumé par type (contenu des cellules pour un tableau, renflements d'une polyligne avec la géométrie) |
+| `get_selection` | Objets que l'utilisateur a sélectionnés dans AutoCAD, décrits comme par `list_entities` ; une note dit quoi faire si rien n'est sélectionné (ou si PICKFIRST vaut 0) |
+| `summarize_entities` | Métré sans liste : nombre d'objets, longueur des courbes, aire des contours fermés, hachures et régions, sommes de champs numériques, au total et par groupe de valeurs (`groupBy`, trois champs au plus) ; mêmes filtres que `list_entities` |
 | `create_layer` | Crée un calque ou met à jour ses propriétés |
 | `create_line` | Crée une ligne : segment, droite infinie (XLINE, ligne de construction) ou demi-droite (RAY) |
 | `create_polyline` | Crée une polyligne, ouverte ou fermée, dans n'importe quel plan : points 3D coplanaires (normale calculée), `plane` xz ou yz en coordonnées locales, ou `normal` imposée |
@@ -226,6 +229,21 @@ par le client (Claude Desktop : journaux `mcp-server-map3d.log`).
 | `list_od_tables` | Tables de données d'objet Map 3D et définition de leurs champs |
 | `get_od_records` | Enregistrements de données d'objet attachés à des objets |
 | `set_od_value` | Écrit une valeur de donnée d'objet, en attachant l'enregistrement au besoin |
+| `create_od_table` | Crée une table de données d'objet : champs `Character`, `Integer`, `Real` ou `Point`, avec description et valeur par défaut |
+| `edit_od_table` | Renomme une table, lui ajoute des champs (valeur par défaut sur les objets existants) ou lui en retire (valeurs effacées) |
+| `delete_od_table` | Supprime une table et ses enregistrements ; refusé si des objets en portent encore, sauf `force` |
+
+- **Champs de filtre, de regroupement et de somme** : propriété (`layer`, `type`, `color`, `linetype`, `lineweight`,
+  `block`, `text`, `length`, `area`, `handle`), attribut de bloc (`attr:ÉTIQUETTE`) ou donnée d'objet
+  (`od:TABLE.CHAMP`, Map 3D seulement).
+- **Conditions `where`**, toutes vérifiées : `{ "field": "od:CONDUITES.DIAMETRE", "op": ">=", "value": 100 }`.
+  Opérateurs `=` (défaut), `!=`, `<`, `<=`, `>`, `>=`, `like` et `notlike` (jokers `*` et `?`), `exists`, `missing` ;
+  avec `=` ou `!=`, `value` peut être une liste. Les nombres se comparent comme des nombres (un texte « 110 » aussi),
+  les textes sans tenir compte de la casse.
+- **Métré** : longueurs et aires sont en unités du dessin (`units`). Exemple, la longueur de conduites par diamètre :
+  `summarize_entities` avec `groupBy: ["od:CONDUITES.DIAMETRE"]`. Les groupes sont triés par valeur, 500 au plus.
+- **Sélection** : `get_selection`, et `selection: true` dans `list_entities` et `summarize_entities`, lisent la
+  sélection faite dans AutoCAD hors commande (variable PICKFIRST à 1, valeur par défaut).
 
 Modélisation 3D :
 
@@ -482,6 +500,7 @@ Système de coordonnées :
 | `get_coordinate_system` | Système attribué au dessin : code, description, EPSG, unités, domaine d'usage, centre du dessin en lon/lat |
 | `search_coordinate_systems` | Recherche dans le catalogue de Map 3D (≈ 8800 systèmes) par mots, code Autodesk ou numéro EPSG |
 | `set_coordinate_system` | Attribue un système au dessin (ou le retire avec un code vide) |
+| `convert_coordinates` | Convertit des points entre le système du dessin (`drawing`), la longitude/latitude WGS84 (`lonlat`), un numéro EPSG ou un code du catalogue, changement de datum compris, sans modifier le dessin ; 1000 points au plus |
 
 - Attribuer un système **ne déplace pas les objets** : cela déclare dans quel système sont exprimées leurs coordonnées.
 - **Compatibilité** : un système est compatible si les quatre coins de l'étendue du dessin, convertis en
@@ -490,6 +509,10 @@ Système de coordonnées :
 - `set_coordinate_system` **refuse** un système incompatible, sauf avec `force=true` (dessin pas encore
   géoréférencé, par exemple).
 - La première recherche indexe le catalogue en 2 à 4 s ; les suivantes sont immédiates.
+- `convert_coordinates` sert par exemple à placer dans le dessin un point donné en longitude/latitude (GPS,
+  `search_cadastre_address`). L'altitude est recopiée telle quelle. Un point hors du domaine d'usage d'un des deux
+  systèmes est signalé (`warning`) : c'est souvent une longitude et une latitude inversées. Sans Map 3D, seules les
+  conversions entre `lonlat` et Lambert-93 sont disponibles.
 
 Systèmes de coordonnées utilisateur (SCU) :
 
@@ -659,6 +682,12 @@ défait l'appel entier en une seule étape, y compris les écritures de données
 Un lot `run_batch` n'est pas une étape d'annulation unique : chacun de ses appels de modification reste une étape
 séparée, défaite par son propre U.
 
+L'outil `undo` compte, par dessin, les étapes laissées par le connecteur depuis la dernière commande lancée par
+quelqu'un d'autre (à la main, ou par une autre application, même un ZOOM). Il ne remonte pas au-delà sans `force` :
+une modification faite dans AutoCAD entre deux appels n'est jamais défaite par erreur. Les commandes mises en file
+par une autre application et exécutées pendant un appel du connecteur (`COVANEWS`) ne remettent pas ce compte à zéro.
+Le serveur ne répond qu'une fois les U exécutés par AutoCAD.
+
 Les outils de gestion des dessins (`new_drawing`, `open_drawing`, `save_drawing`, `close_drawing`) agissent sur
 les fichiers et les fenêtres d'AutoCAD, en contexte application : ils ne s'annulent pas avec U.
 
@@ -669,8 +698,9 @@ Servies par le pipe mais volontairement **non exposées comme outils MCP**, elle
 | Méthode | Rôle |
 | --- | --- |
 | `status` | État du connecteur ; répond même si AutoCAD est occupé |
-| `_undo` | Met la commande U d'AutoCAD dans la file (paramètre `count`) |
-| `_create_od_table` | Crée une table de données d'objet (`name`, `description`, `fields`) |
+| `_undo` | Met la commande U d'AutoCAD dans la file (paramètre `count`), sans les contrôles de l'outil `undo` |
+| `_undo_progress` | Nombre de U demandés par l'outil `undo` et pas encore terminés ; le serveur attend qu'il tombe à zéro |
+| `_create_od_table` | Crée une table de données d'objet si elle manque (`name`, `description`, `fields`), sans erreur si elle existe |
 | `_convert_3d_model` | Conversion d'un fichier STEP ou IGES en DWG temporaire par `acTranslators.exe`, hors du thread principal (`filePath`, `timeoutSeconds`) ; premier temps de `import_3d_model` |
 | `_insert_3d_model` | Insertion d'un DWG converti en bloc (`dwgPath`, `sourceFile`, `position`, `scale`, `blockName`, `explode`, `layer`, `color`, `deleteDwg`) ; second temps de `import_3d_model` |
 | `_fdo_diagnostic` | Calques FDO de la carte avec leur type, XML de leur définition et de leur source ; données nommées d'une source (`source`, `dataNames`) ; configuration par défaut d'un fournisseur (`provider`, `connectionString`) |

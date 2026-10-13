@@ -37,8 +37,62 @@ internal static class MapTools
     public static object SetOdValue(ToolContext context, JsonElement? args) =>
         Guard(() => SetOdValueCore(context, args), "écriture d'une donnée d'objet");
 
+    /// <summary>Diagnostic des scripts de test : crée la table si elle manque, sans erreur si elle existe.</summary>
+    public static object CreateOdTableIfMissing(ToolContext context, JsonElement? args) =>
+        Guard(() => CreateOdTableIfMissingCore(context, args), "création d'une table de données d'objet");
+
     public static object CreateOdTable(ToolContext context, JsonElement? args) =>
         Guard(() => CreateOdTableCore(context, args), "création d'une table de données d'objet");
+
+    public static object EditOdTable(ToolContext context, JsonElement? args) =>
+        Guard(() => EditOdTableCore(context, args), "modification d'une table de données d'objet");
+
+    public static object DeleteOdTable(ToolContext context, JsonElement? args) =>
+        Guard(() => DeleteOdTableCore(context, args), "suppression d'une table de données d'objet");
+
+    /// <summary>
+    /// Lecture des données d'objet d'un objet par table et champ, pour les filtres et métrés. Les enregistrements
+    /// d'un objet sont lus une fois, puis gardés tant que l'objet demandé ne change pas.
+    /// </summary>
+    internal static Func<ObjectId, string, string, object?> CreateOdLookup(Database database)
+    {
+        if (!MapInfo.IsAvailable)
+            throw new PipeException(PipeErrorCodes.MapUnavailable, "Les champs od:TABLE.CHAMP requièrent AutoCAD Map 3D.");
+        return CreateOdLookupCore(database);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static Func<ObjectId, string, string, object?> CreateOdLookupCore(Database database)
+    {
+        var tables = MapInfo.RequireProject(database).ODTables;
+        var cachedId = ObjectId.Null;
+        var cached = new Dictionary<string, Dictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
+        return (id, table, field) =>
+        {
+            if (id != cachedId)
+            {
+                cached.Clear();
+                try
+                {
+                    using var attached = OpenRecords(tables, id, OdOpenMode.OpenForRead);
+                    // L'énumérateur de l'API Map lève une exception si la collection est vide.
+                    foreach (Record record in attached.Count > 0 ? attached.Cast<Record>() : [])
+                    {
+                        if (!cached.ContainsKey(record.TableName))
+                            cached[record.TableName] = new Dictionary<string, object?>(ReadValues(tables[record.TableName], record), StringComparer.OrdinalIgnoreCase);
+                    }
+                }
+                catch (MapException ex)
+                {
+                    throw Translate(ex, $"lecture des données d'objet de {id.Handle}");
+                }
+
+                cachedId = id;
+            }
+
+            return cached.TryGetValue(table, out var values) && values.TryGetValue(field, out var value) ? value : null;
+        };
+    }
 
     /// <summary>Les erreurs de l'API Map arrivent sans message : on les traduit systématiquement.</summary>
     private static object Guard(Func<object> action, string operation)
@@ -327,33 +381,150 @@ internal static class MapTools
         };
     }
 
-    /// <summary>
-    /// Diagnostic : crée une table de données d'objet pour les tests. Non exposé comme outil MCP.
-    /// Paramètres : name, description, fields = [{ name, type, description }].
-    /// </summary>
+    private static object CreateOdTableIfMissingCore(ToolContext context, JsonElement? args)
+    {
+        var name = new ArgReader(args).RequireString("name");
+        return MapInfo.RequireProject(context.Database).ODTables.IsTableDefined(name)
+            ? new { Created = false, Name = name }
+            : CreateOdTableCore(context, args);
+    }
+
+    /// <summary>Nouvelle table : name, description, fields = [{ name, type, description, default }].</summary>
     private static object CreateOdTableCore(ToolContext context, JsonElement? args)
     {
         var reader = new ArgReader(args);
-        var name = reader.RequireString("name");
+        var name = reader.RequireString("name").Trim();
         var tables = MapInfo.RequireProject(context.Database).ODTables;
         if (tables.IsTableDefined(name))
-            return new { Created = false, Name = name };
-
-        if (!reader.TryGet("fields", out var fields) || fields.ValueKind != JsonValueKind.Array)
-            throw new PipeException(PipeErrorCodes.InvalidParams, "Le paramètre « fields » attend un tableau de champs.");
+            throw new PipeException(PipeErrorCodes.InvalidParams,
+                $"La table « {name} » existe déjà. Pour la modifier, utilisez edit_od_table.");
 
         var definitions = FieldDefinitions.Create();
-        var position = 0;
-        foreach (var field in fields.EnumerateArray())
-        {
-            var fieldName = field.GetProperty("name").GetString()!;
-            var typeName = field.TryGetProperty("type", out var typeValue) ? typeValue.GetString() : "Character";
-            var description = field.TryGetProperty("description", out var descriptionValue) ? descriptionValue.GetString() : "";
-            definitions.Add(fieldName, description ?? "", ParseDataType(typeName), position++);
-        }
+        var fields = ReadFieldSpecs(reader, "fields");
+        if (fields.Count == 0)
+            throw new PipeException(PipeErrorCodes.InvalidParams, "Une table demande au moins un champ dans « fields ».");
+        foreach (var field in fields)
+            definitions.AddColumn(field, definitions.Count);
 
         tables.Add(name, definitions, reader.GetString("description") ?? "", false);
-        return new { Created = true, Name = name, FieldCount = position };
+        return new { Created = true, Name = name, Fields = DescribeFields(tables[name].FieldDefinitions) };
+    }
+
+    /// <summary>Renomme une table, lui ajoute ou lui retire des champs. Retirer un champ efface ses valeurs.</summary>
+    private static object EditOdTableCore(ToolContext context, JsonElement? args)
+    {
+        var reader = new ArgReader(args);
+        var name = reader.RequireString("table").Trim();
+        var tables = MapInfo.RequireProject(context.Database).ODTables;
+        if (!tables.IsTableDefined(name))
+            throw new PipeException(PipeErrorCodes.InvalidParams, $"La table de données d'objet « {name} » n'existe pas (voir list_od_tables).");
+
+        var newName = reader.GetString("newName")?.Trim();
+        var remove = reader.GetStrings("removeFields");
+        var add = ReadFieldSpecs(reader, "addFields");
+        if (string.IsNullOrEmpty(newName) && remove.Count == 0 && add.Count == 0)
+            throw new PipeException(PipeErrorCodes.InvalidParams, "Indiquez newName, addFields ou removeFields.");
+
+        if (remove.Count > 0 || add.Count > 0)
+        {
+            var definitions = tables[name].FieldDefinitions.Clone();
+            foreach (var field in remove)
+            {
+                var index = definitions.GetColumnIndex(field);
+                if (index < 0)
+                    throw new PipeException(PipeErrorCodes.InvalidParams,
+                        $"Le champ « {field} » n'existe pas dans la table « {name} » : {string.Join(", ", FieldNames(definitions))}.");
+                definitions.RemoveColumn(index);
+            }
+
+            foreach (var field in add)
+            {
+                if (definitions.GetColumnIndex(field.Name) >= 0)
+                    throw new PipeException(PipeErrorCodes.InvalidParams, $"Le champ « {field.Name} » existe déjà dans la table « {name} ».");
+                definitions.AddColumn(field, definitions.Count);
+            }
+
+            if (definitions.Count == 0)
+                throw new PipeException(PipeErrorCodes.InvalidParams, "Une table doit garder au moins un champ : utilisez delete_od_table pour la supprimer.");
+            tables.UpdateTable(name, definitions);
+        }
+
+        if (!string.IsNullOrEmpty(newName) && !newName.Equals(name, StringComparison.Ordinal))
+        {
+            if (tables.IsTableDefined(newName))
+                throw new PipeException(PipeErrorCodes.InvalidParams, $"Une table « {newName} » existe déjà.");
+            tables.RenameTable(name, newName);
+            name = newName;
+        }
+
+        return new { Name = name, Fields = DescribeFields(tables[name].FieldDefinitions) };
+    }
+
+    /// <summary>
+    /// Supprime une table et, avec elle, les enregistrements attachés aux objets. Sans force, refuse si des objets
+    /// des espaces objet et papier en portent encore.
+    /// </summary>
+    private static object DeleteOdTableCore(ToolContext context, JsonElement? args)
+    {
+        var reader = new ArgReader(args);
+        var name = reader.RequireString("table").Trim();
+        var tables = MapInfo.RequireProject(context.Database).ODTables;
+        if (!tables.IsTableDefined(name))
+            throw new PipeException(PipeErrorCodes.InvalidParams, $"La table de données d'objet « {name} » n'existe pas (voir list_od_tables).");
+
+        var table = tables[name];
+        var transaction = context.RequireTransaction();
+        var layouts = (DBDictionary)transaction.GetObject(context.Database.LayoutDictionaryId, OpenMode.ForRead);
+        var attached = 0;
+        foreach (System.Collections.DictionaryEntry entry in layouts)
+        {
+            var layout = (Layout)transaction.GetObject((ObjectId)entry.Value!, OpenMode.ForRead);
+            foreach (ObjectId id in (BlockTableRecord)transaction.GetObject(layout.BlockTableRecordId, OpenMode.ForRead))
+            {
+                using var records = table.GetObjectTableRecords(CurrentDrawing, id, OdOpenMode.OpenForRead, false);
+                if (records.Count > 0)
+                    attached++;
+            }
+        }
+
+        if (attached > 0 && !reader.GetBool("force", false))
+            throw new PipeException(PipeErrorCodes.InvalidParams,
+                $"{attached} objet(s) portent encore des données de la table « {name} » : leur suppression serait définitive. " +
+                "force=true supprime quand même, seulement si l'utilisateur le demande.");
+
+        tables.RemoveTable(name);
+        return new { Deleted = name, ObjectsWithRecords = attached };
+    }
+
+    /// <summary>Champs décrits en JSON : [{ name, type, description, default }].</summary>
+    private static List<FieldDefinition> ReadFieldSpecs(ArgReader reader, string parameter)
+    {
+        var result = new List<FieldDefinition>();
+        if (!reader.TryGet(parameter, out var fields))
+            return result;
+        if (fields.ValueKind != JsonValueKind.Array)
+            throw new PipeException(PipeErrorCodes.InvalidParams,
+                $"« {parameter} » attend un tableau de champs, par exemple [{{\"name\":\"DIAMETRE\",\"type\":\"Integer\"}}].");
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in fields.EnumerateArray())
+        {
+            var fieldReader = new ArgReader(field);
+            var name = fieldReader.RequireString("name").Trim();
+            if (!names.Add(name))
+                throw new PipeException(PipeErrorCodes.InvalidParams, $"Le champ « {name} » figure deux fois.");
+            var description = fieldReader.GetString("description") ?? "";
+            var type = ParseDataType(fieldReader.GetString("type") ?? "Character");
+            result.Add(!fieldReader.Has("default") ? FieldDefinition.Create(name, description, type) : type switch
+            {
+                DataType.Character => FieldDefinition.Create(name, description, fieldReader.GetString("default") ?? ""),
+                DataType.Integer => FieldDefinition.Create(name, description, fieldReader.GetInt("default", 0)),
+                DataType.Real => FieldDefinition.Create(name, description, fieldReader.GetDouble("default", 0)),
+                _ => FieldDefinition.Create(name, description, fieldReader.RequirePoint("default")),
+            });
+        }
+
+        return result;
     }
 
     private static Records OpenRecords(Tables tables, ObjectId id, OdOpenMode mode)

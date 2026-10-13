@@ -113,31 +113,40 @@ internal sealed class RequestProcessor(ToolRegistry registry, MainThreadDispatch
         ExceptionDispatchInfo? failure = null;
         CommandTrace.Note($"écriture {tool.Name} : entrée en contexte commande");
 
-        await AcApp.DocumentManager.ExecuteInCommandContextAsync(
-            _ =>
-            {
-                try
+        // Une écriture laisse une étape d'annulation, même en cas d'échec : le journal la compte dans tous les cas.
+        UndoJournal.BeginWrite(doc);
+        try
+        {
+            await AcApp.DocumentManager.ExecuteInCommandContextAsync(
+                _ =>
                 {
-                    ToolContext context;
-                    using (var transaction = doc.Database.TransactionManager.StartTransaction())
+                    try
                     {
-                        context = new ToolContext(doc, transaction);
-                        result = Serialize(tool.Handler(context, args));
-                        transaction.Commit();
+                        ToolContext context;
+                        using (var transaction = doc.Database.TransactionManager.StartTransaction())
+                        {
+                            context = new ToolContext(doc, transaction);
+                            result = Serialize(tool.Handler(context, args));
+                            transaction.Commit();
+                        }
+
+                        context.RunAfterCommit();
+                        if (context.ResultAfterCommit is { } deferred)
+                            result = Serialize(deferred());
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ExceptionDispatchInfo.Capture(ex);
                     }
 
-                    context.RunAfterCommit();
-                    if (context.ResultAfterCommit is { } deferred)
-                        result = Serialize(deferred());
-                }
-                catch (Exception ex)
-                {
-                    failure = ExceptionDispatchInfo.Capture(ex);
-                }
-
-                return Task.CompletedTask;
-            },
-            null);
+                    return Task.CompletedTask;
+                },
+                null);
+        }
+        finally
+        {
+            UndoJournal.EndWrite(doc);
+        }
 
         CommandTrace.Note($"écriture {tool.Name} : terminée");
         failure?.Throw();

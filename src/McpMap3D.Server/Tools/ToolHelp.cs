@@ -23,7 +23,8 @@ internal static class ToolHelp
         "Appelez ping pour vérifier la liaison. Si un outil répond qu'AutoCAD est occupé, demandez à l'utilisateur " +
         "de terminer la commande en cours (Échap) ou de fermer la boîte de dialogue ouverte, puis réessayez. " +
         "Chaque appel d'un outil de modification s'annule en une seule étape avec la commande U d'AutoCAD, sauf " +
-        "mention contraire dans sa description. Pour enchaîner plusieurs opérations indépendantes en un seul appel, " +
+        "mention contraire dans sa description ; l'outil undo annule ainsi les derniers appels du connecteur. " +
+        "Pour enchaîner plusieurs opérations indépendantes en un seul appel, " +
         "utilisez run_batch.\n\n" +
         "Paramètres communs :\n" +
         "- color : index AutoCAD 1-255, « R,G,B », nom (rouge, jaune, vert, cyan, bleu, magenta, blanc, noir, gris), " +
@@ -34,6 +35,15 @@ internal static class ToolHelp
         "- lineWeight : épaisseur de ligne (trait tracé) en mm, valeur normalisée : 0.00, 0.05, 0.09, 0.13, 0.15, " +
         "0.18, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50, 0.53, 0.60, 0.70, 0.80, 0.90, 1.00, 1.06, 1.20, 1.40, 1.58, 2.00, " +
         "2.11 ; ou ByLayer, ByBlock, Default.";
+
+    public const string EntityFields =
+        "propriété (layer, type, color, linetype, lineweight, block, text, length, area, handle), attribut de bloc " +
+        "(attr:ÉTIQUETTE) ou donnée d'objet Map 3D (od:TABLE.CHAMP).";
+
+    public const string Where =
+        "Conditions à remplir toutes, par exemple [{\"field\":\"od:CONDUITES.DIAMETRE\",\"op\":\">=\",\"value\":100}] " +
+        "ou [{\"field\":\"attr:NUMERO\",\"op\":\"like\",\"value\":\"A*\"}]. Les nombres se comparent comme des " +
+        "nombres, les textes sans tenir compte de la casse.";
 
     public const string PlanarPoints =
         "Sommets, deux au minimum. [[x,y],…] ou points 3D de même Z : polyligne horizontale à ce Z. Points 3D " +

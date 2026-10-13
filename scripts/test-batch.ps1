@@ -134,6 +134,21 @@ try {
     $bad = Batch @(@{ tool = 'create_line'; arguments = @{ start = @(0, 750) } })
     Check 'argument obligatoire manquant signalé' ($bad.isError -and $bad.summary.failed -eq 1) "($($bad.summary.results[0].error))"
 
+    Write-Host "Outil undo (le serveur attend la fin des U avant de répondre)"
+    $before = Count-Entities
+    $made = (Mcp 'tools/call' @{ name = 'create_line'; arguments = @{ start = @(0, 760); end = @(5, 760); layer = $layer } }).result
+    $undo = (Mcp 'tools/call' @{ name = 'undo'; arguments = @{ count = 1 } }).result
+    Check 'undo accepté' (-not $undo.isError) "($($undo.content[0].text))"
+    Check 'objet annulé dès la réponse de undo' ((Count-Entities) -eq $before)
+    $b = Batch @(
+        @{ tool = 'create_line'; arguments = @{ start = @(0, 765); end = @(5, 765); layer = $layer } },
+        @{ tool = 'create_line'; arguments = @{ start = @(0, 770); end = @(5, 770); layer = $layer } },
+        @{ tool = 'undo'; arguments = @{ count = 2 } })
+    Check 'lot avec undo : 3 réussis' (-not $b.isError -and $b.summary.succeeded -eq 3) "($($b.summary.succeeded))"
+    Check 'les deux objets du lot annulés' ((Count-Entities) -eq $before)
+    $refused = (Mcp 'tools/call' @{ name = 'undo'; arguments = @{ count = 20 } }).result
+    Check 'undo au-delà des appels du connecteur refusé' ($refused.isError -and $refused.content[0].text -like '*connecteur*')
+
     Write-Host "Annulation de $($script:writes) opération(s), une à une"
     foreach ($i in 1..$script:writes) { Call '_undo' '{"count":1}' | Out-Null; Start-Sleep -Milliseconds 700 }
 

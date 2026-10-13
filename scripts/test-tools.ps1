@@ -120,6 +120,66 @@ try {
         }
     }
 
+    Write-Host "Tables de données d'objet, filtres et métrés"
+    $res = 'MCP_AUTOTEST_RES'
+    $fields = '[{"name":"DIAMETRE","type":"Integer","default":0},{"name":"MATERIAU","type":"Character"},{"name":"PRIX","type":"Real","description":"Prix au mètre"}]'
+    Test-Tool 'create_od_table' 'create_od_table' "{`"name`":`"$res`",`"description`":`"Réseau de test`",`"fields`":$fields}" { param($r) $r.created -and $r.fields.Count -eq 3 } | Out-Null; $writes++
+    Test-Error 'create_od_table : table déjà existante' 'create_od_table' "{`"name`":`"$res`",`"fields`":$fields}" 'invalid_params' -IsWrite
+    $p1 = Test-Tool 'conduite de 10' 'create_polyline' "{`"points`":[[100,0],[110,0]],`"layer`":`"$testLayer`"}" { param($r) $r.handle }; $writes++
+    $p2 = Test-Tool 'conduite de 20' 'create_polyline' "{`"points`":[[100,10],[120,10]],`"layer`":`"$testLayer`"}" { param($r) $r.handle }; $writes++
+    $p3 = Test-Tool 'conduite de 30' 'create_polyline' "{`"points`":[[100,20],[130,20]],`"layer`":`"$testLayer`"}" { param($r) $r.handle }; $writes++
+    $pvc = "[`"$($p1.handle)`",`"$($p2.handle)`"]"
+    $all = "[`"$($p1.handle)`",`"$($p2.handle)`",`"$($p3.handle)`"]"
+    Test-Tool 'DIAMETRE 100' 'set_od_value' "{`"handles`":$pvc,`"table`":`"$res`",`"field`":`"DIAMETRE`",`"value`":100}" { param($r) $r.created -eq 2 } | Out-Null; $writes++
+    Test-Tool 'DIAMETRE 150' 'set_od_value' "{`"handles`":[`"$($p3.handle)`"],`"table`":`"$res`",`"field`":`"DIAMETRE`",`"value`":150}" { param($r) $r.created -eq 1 } | Out-Null; $writes++
+    Test-Tool 'MATERIAU PVC' 'set_od_value' "{`"handles`":$pvc,`"table`":`"$res`",`"field`":`"MATERIAU`",`"value`":`"PVC`"}" { param($r) $r.updated -eq 2 } | Out-Null; $writes++
+    Test-Tool 'MATERIAU FONTE' 'set_od_value' "{`"handles`":[`"$($p3.handle)`"],`"table`":`"$res`",`"field`":`"MATERIAU`",`"value`":`"FONTE`"}" { param($r) $r.updated -eq 1 } | Out-Null; $writes++
+    Test-Tool 'PRIX 12,5' 'set_od_value' "{`"handles`":$all,`"table`":`"$res`",`"field`":`"PRIX`",`"value`":12.5}" { param($r) $r.updated -eq 3 } | Out-Null; $writes++
+
+    $scope = "`"layers`":[`"$testLayer`"],`"types`":[`"LWPOLYLINE`"]"
+    $summary = Test-Tool 'summarize_entities (par diamètre)' 'summarize_entities' "{$scope,`"groupBy`":[`"od:$res.DIAMETRE`"],`"sum`":[`"od:$res.PRIX`"]}" {
+        param($r)
+        $g100 = $r.groups | Where-Object { $_.key."od:$res.DIAMETRE" -eq 100 }
+        $g150 = $r.groups | Where-Object { $_.key."od:$res.DIAMETRE" -eq 150 }
+        $r.count -eq 3 -and $r.length -eq 60 -and $r.groupCount -eq 2 -and
+            $g100.count -eq 2 -and $g100.length -eq 30 -and $g100.sums."od:$res.PRIX" -eq 25 -and
+            $g150.count -eq 1 -and $g150.length -eq 30
+    }
+    if ($summary) { Write-Host "        $($summary.groups | ForEach-Object { "D$($_.key."od:$res.DIAMETRE") : $($_.count) objet(s), $($_.length) m" })" }
+    Test-Tool 'summarize_entities (par calque, sans OD)' 'summarize_entities' "{`"layers`":[`"$testLayer`"],`"groupBy`":[`"type`"]}" { param($r) ($r.groups | Where-Object { $_.key.type -eq 'LWPOLYLINE' }).count -eq 3 } | Out-Null
+    Test-Tool 'list_entities where >= 120' 'list_entities' "{$scope,`"where`":[{`"field`":`"od:$res.DIAMETRE`",`"op`":`">=`",`"value`":120}]}" { param($r) $r.total -eq 1 -and $r.entities[0].handle -eq $p3.handle } | Out-Null
+    Test-Tool 'list_entities where like' 'list_entities' "{$scope,`"where`":[{`"field`":`"od:$res.MATERIAU`",`"op`":`"like`",`"value`":`"pv*`"}]}" { param($r) $r.total -eq 2 } | Out-Null
+    Test-Tool 'list_entities where = liste' 'list_entities' "{$scope,`"where`":[{`"field`":`"od:$res.DIAMETRE`",`"value`":[100,150]}]}" { param($r) $r.total -eq 3 } | Out-Null
+    Test-Tool 'list_entities where length' 'list_entities' "{$scope,`"where`":[{`"field`":`"length`",`"op`":`"<`",`"value`":25}]}" { param($r) $r.total -eq 2 } | Out-Null
+    Test-Tool 'list_entities where missing' 'list_entities' "{`"layers`":[`"$testLayer`"],`"where`":[{`"field`":`"od:$res.DIAMETRE`",`"op`":`"missing`"}]}" { param($r) $r.entities.handle -notcontains $p1.handle } | Out-Null
+    Test-Error 'champ inconnu' 'summarize_entities' '{"groupBy":["couleur2"]}' 'invalid_params'
+    Test-Error 'opérateur inconnu' 'list_entities' '{"where":[{"field":"layer","op":"~","value":"0"}]}' 'invalid_params'
+    Test-Error 'handles et sélection ensemble' 'summarize_entities' "{`"handles`":[`"$($p1.handle)`"],`"selection`":true}" 'invalid_params'
+    Test-Tool 'get_selection' 'get_selection' '{}' { param($r) $r.count -gt 0 -or $r.note } | Out-Null
+
+    Test-Tool 'edit_od_table (champs)' 'edit_od_table' "{`"table`":`"$res`",`"addFields`":[{`"name`":`"ETAT`",`"default`":`"neuf`"}],`"removeFields`":[`"MATERIAU`"]}" {
+        param($r) ($r.fields.name -join ',') -eq 'DIAMETRE,PRIX,ETAT'
+    } | Out-Null; $writes++
+    Test-Tool 'champ ajouté sur les enregistrements' 'get_od_records' "{`"handles`":[`"$($p1.handle)`"],`"tables`":[`"$res`"]}" {
+        param($r) $v = $r.objects[0].records[0].values; $v.ETAT -eq 'neuf' -and $v.DIAMETRE -eq 100 -and $null -eq $v.MATERIAU
+    } | Out-Null
+    Test-Tool 'edit_od_table (renommage)' 'edit_od_table' "{`"table`":`"$res`",`"newName`":`"${res}2`"}" { param($r) $r.name -eq "${res}2" } | Out-Null; $writes++
+    Test-Error 'delete_od_table sans force' 'delete_od_table' "{`"table`":`"${res}2`"}" 'invalid_params' -IsWrite
+    Test-Tool 'delete_od_table (force)' 'delete_od_table' "{`"table`":`"${res}2`",`"force`":true}" { param($r) $r.objectsWithRecords -eq 3 } | Out-Null; $writes++
+    Test-Tool 'table supprimée' 'list_od_tables' '{"includeFields":false}' { param($r) $r.tables.name -notcontains "${res}2" } | Out-Null
+
+    Write-Host "Annulation par l'outil undo"
+    $temp = Test-Tool 'objet à annuler' 'create_line' "{`"start`":[200,0],`"end`":[210,0],`"layer`":`"$testLayer`"}" { param($r) $r.handle }
+    $undone = Test-Tool 'undo' 'undo' '{"count":1}' { param($r) $r.undone -eq 1 }
+    # Comme le serveur MCP : attendre qu'AutoCAD ait fini d'exécuter les U.
+    foreach ($i in 1..100) { if ((Invoke-Tool '_undo_progress').result.inProgress -eq 0) { break }; Start-Sleep -Milliseconds 100 }
+    $gone = Invoke-Tool 'list_entities' "{`"handles`":[`"$($temp.handle)`"]}"
+    if (-not $gone.ok) { Write-Host "  OK    objet annulé avant l'appel suivant" -ForegroundColor Green }
+    else { Write-Host "  ÉCHEC objet toujours présent après undo" -ForegroundColor Red; $failures++ }
+    if ($undone -and $undone.remainingConnectorSteps -lt 20) {
+        Test-Error 'undo au-delà des appels du connecteur' 'undo' "{`"count`":$($undone.remainingConnectorSteps + 1)}" 'invalid_params'
+    }
+
     Write-Host "Système de coordonnées"
     $initialCs = (Invoke-Tool 'get_coordinate_system').result
     Test-Tool 'search_coordinate_systems (EPSG 2154)' 'search_coordinate_systems' '{"query":"2154","limit":3}' { param($r) $r.results[0].code -eq 'Lambert93' } | Out-Null
@@ -127,6 +187,21 @@ try {
     Test-Tool 'set_coordinate_system (forcé)' 'set_coordinate_system' '{"code":"RGF93.CC46","force":true}' { param($r) $r.assigned -eq 'RGF93.CC46' } | Out-Null; $writes++
     Test-Tool 'get_coordinate_system' 'get_coordinate_system' '{}' { param($r) $r.system.code -eq 'RGF93.CC46' } | Out-Null
     Test-Error 'système inconnu' 'set_coordinate_system' '{"code":"PAS.UN.CODE"}' 'invalid_params' -IsWrite
+    # Origines des projections : longitude 3°, latitude 46,5° -> Lambert-93 (700 000 ; 6 600 000) ;
+    # longitude 3°, latitude 46° -> CC46 (1 700 000 ; 5 200 000).
+    Test-Tool 'convert_coordinates lonlat -> EPSG:2154' 'convert_coordinates' '{"points":[[3,46.5]],"from":"lonlat","to":"EPSG:2154"}' {
+        param($r) [math]::Abs($r.points[0][0] - 700000) -lt 0.01 -and [math]::Abs($r.points[0][1] - 6600000) -lt 0.01 -and $r.to.code -eq 'Lambert93'
+    } | Out-Null
+    Test-Tool 'convert_coordinates lonlat -> drawing (CC46)' 'convert_coordinates' '{"points":[[3,46,12.5]],"from":"lonlat","to":"drawing"}' {
+        param($r) [math]::Abs($r.points[0][0] - 1700000) -lt 0.01 -and [math]::Abs($r.points[0][1] - 5200000) -lt 0.01 -and $r.points[0][2] -eq 12.5
+    } | Out-Null
+    $l93 = '[[850000,6550000],[700000,6480000]]'
+    $cc46 = (Invoke-Tool 'convert_coordinates' "{`"points`":$l93,`"from`":`"Lambert93`",`"to`":`"RGF93.CC46`"}").result
+    Test-Tool 'convert_coordinates aller-retour CC46' 'convert_coordinates' "{`"points`":[$(($cc46.points | ForEach-Object { '[' + (($_ | ForEach-Object { $_.ToString([cultureinfo]::InvariantCulture) }) -join ',') + ']' }) -join ',')],`"from`":`"RGF93.CC46`",`"to`":`"2154`"}" {
+        param($r) [math]::Abs($r.points[0][0] - 850000) -lt 0.001 -and [math]::Abs($r.points[1][1] - 6480000) -lt 0.001 -and -not $r.warning
+    } | Out-Null
+    Test-Tool 'convert_coordinates : longitude et latitude inversées signalées' 'convert_coordinates' '{"points":[[46.5,3]],"from":"lonlat","to":"Lambert93"}' { param($r) $r.warning } | Out-Null
+    Test-Error 'convert_coordinates : système inconnu' 'convert_coordinates' '{"points":[[0,0]],"from":"PAS.UN.CODE","to":"lonlat"}' 'invalid_params'
 
     Write-Host "Erreurs attendues"
     Test-Error 'méthode inconnue' 'nexiste_pas' '{}' 'unknown_method'

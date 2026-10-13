@@ -143,17 +143,14 @@ internal static class ReadTools
     public static object ListEntities(ToolContext context, JsonElement? args)
     {
         var reader = new ArgReader(args);
-        var layerFilter = NameFilter.Create(reader.GetStrings("layers"));
-        var typeFilter = NameFilter.Create(reader.GetStrings("types"));
         var offset = reader.GetInt("offset", 0, min: 0);
         var limit = reader.GetInt("limit", 100, min: 1, max: MaxEntities);
         var includeGeometry = reader.GetBool("includeGeometry", false);
-        var space = reader.GetString("space", "model")!;
 
         var transaction = context.RequireTransaction();
 
         // Objets désignés : on les décrit tels quels, sans filtre ni pagination.
-        if (reader.Has("handles"))
+        if (reader.Has("handles") && !reader.Has("where"))
         {
             var described = Handles.Resolve(context, reader)
                 .Select(id => transaction.GetObject(id, OpenMode.ForRead) as Entity
@@ -163,17 +160,13 @@ internal static class ReadTools
             return new { Total = described.Count, Offset = 0, Limit = described.Count, Count = described.Count, Entities = described };
         }
 
-        var container = OpenSpace(context, space, transaction);
-
+        // Espace, sélection courante ou handles, filtrés par calque, type et conditions where.
+        var filter = EntityFilter.Create(context, reader, transaction);
         var entities = new List<object>();
         var total = 0;
-        foreach (var id in container)
+        foreach (var entity in QueryTools.Source(context, reader, transaction))
         {
-            var entity = (Entity)transaction.GetObject(id, OpenMode.ForRead);
-            if (layerFilter is not null && !layerFilter.IsMatch(entity.Layer))
-                continue;
-
-            if (typeFilter is not null && !typeFilter.IsMatch(Format.DxfName(entity)))
+            if (!filter.IsMatch(entity))
                 continue;
 
             total++;
@@ -186,7 +179,7 @@ internal static class ReadTools
         return new { Total = total, Offset = offset, Limit = limit, Count = entities.Count, Entities = entities };
     }
 
-    private static BlockTableRecord OpenSpace(ToolContext context, string space, Transaction transaction)
+    internal static BlockTableRecord OpenSpace(ToolContext context, string space, Transaction transaction)
     {
         var database = context.Database;
         var blocks = (BlockTable)transaction.GetObject(database.BlockTableId, OpenMode.ForRead);
@@ -217,7 +210,7 @@ internal static class ReadTools
             $"Espace « {space} » introuvable. Valeurs possibles : model, paper, current ou le nom d'une présentation.");
     }
 
-    private static object Describe(Entity entity, bool includeGeometry, Transaction transaction)
+    internal static object Describe(Entity entity, bool includeGeometry, Transaction transaction)
     {
         var description = new Dictionary<string, object?>
         {

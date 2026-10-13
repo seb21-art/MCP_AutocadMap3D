@@ -38,7 +38,9 @@ public sealed class ReadTools(PluginClient plugin)
         ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Liste les objets du dessin avec leur handle, leur type et leur calque, plus un résumé selon le type " +
                  "(longueur, aire, centre, texte, bloc). Le handle sert ensuite aux outils de modification et aux " +
-                 "données d'objet. Résultat paginé : « total » donne le nombre d'objets correspondant au filtre.")]
+                 "données d'objet. Filtres par calque, type et conditions where sur les propriétés, attributs de bloc " +
+                 "ou données d'objet. Résultat paginé : « total » donne le nombre d'objets correspondant au filtre ; " +
+                 "pour des totaux (longueurs, aires, nombres par valeur), utilisez summarize_entities.")]
     public Task<string> ListEntities(
         [Description("Calques à retenir ; les jokers * et ? sont acceptés. Tous si omis.")]
         string[]? layers = null,
@@ -52,9 +54,14 @@ public sealed class ReadTools(PluginClient plugin)
         int limit = 100,
         [Description("Ajoute les détails géométriques : points, sommets, angles, échelles et limites.")]
         bool includeGeometry = false,
-        [Description("Handles d'objets précis à décrire ; les autres filtres et la pagination sont alors ignorés.")]
+        [Description("Handles d'objets précis à décrire ; sans where, les autres filtres et la pagination sont alors ignorés.")]
         string[]? handles = null,
+        [Description(ToolHelp.Where)]
+        EntityCondition[]? where = null,
+        [Description("Parcourir les objets sélectionnés par l'utilisateur dans AutoCAD, au lieu d'un espace.")]
+        bool selection = false,
         CancellationToken cancellationToken = default) =>
         plugin.CallForTextAsync("list_entities",
-            new { layers, types, space, offset, limit, includeGeometry, handles }, cancellationToken: cancellationToken);
+            new { layers, types, space, offset, limit, includeGeometry, handles, where, selection = selection ? true : (bool?)null },
+            cancellationToken: cancellationToken);
 }
