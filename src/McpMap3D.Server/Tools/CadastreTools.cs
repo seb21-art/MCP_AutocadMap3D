@@ -19,6 +19,8 @@ public sealed class CadastreTools(PluginClient plugin)
 {
     private const int DefaultMaxParcels = 2000;
     private const int DefaultMaxBuildings = 4000;
+    private const int DefaultMaxCommuneParcels = 20_000;
+    private const int DefaultMaxCommuneBuildings = 20_000;
     private const int SearchMaxParcels = 300;
     private const double MaxZoneMeters = 10_000;
 
@@ -28,17 +30,18 @@ public sealed class CadastreTools(PluginClient plugin)
                  "en polylignes fermées (calque <préfixe>_PARCELLES), numéros au centre des parcelles (<préfixe>_NUMEROS), " +
                  "feuilles de sections avec le code de section (<préfixe>_SECTIONS). Les attributs sont rattachés en données " +
                  "d'objet Map 3D : table <préfixe> (ID, COMMUNE, CODE_INSEE, SECTION, NUMERO, CONTENANCE) et table " +
-                 "<préfixe>_SECTIONS (ID, COMMUNE, CODE_INSEE, SECTION, FEUILLE). Modes : « address » (autour d'une adresse), « extent » (emprise des objets du dessin) " +
-                 "ou « parcel » (code INSEE, section, numéros, et voisines avec buffer). Avec includeBuildings, les bâtiments " +
-                 "de la zone (en mode parcel, ceux des parcelles importées) sont dessinés sur <préfixe>_BATI_DUR et " +
+                 "<préfixe>_SECTIONS (ID, COMMUNE, CODE_INSEE, SECTION, FEUILLE). Modes : « address » (autour d'une adresse), « extent » (emprise des objets du dessin), " +
+                 "« parcel » (code INSEE, section, numéros, et voisines avec buffer) ou « commune » (toute la commune, par son " +
+                 "code INSEE, depuis le WFS de la Géoplateforme). Avec includeBuildings, les bâtiments " +
+                 "de la zone (en modes parcel et commune, ceux des parcelles importées) sont dessinés sur <préfixe>_BATI_DUR et " +
                  "<préfixe>_BATI_LEGER, avec la table <préfixe>_BATIMENTS : bâti du plan cadastral par défaut, ou BD TOPO " +
                  "(hauteur, usage, étages, altitudes), en 3D si buildings3d. Les objets déjà importés sont ignorés " +
                  "(skipExisting). Si le dessin n'a pas de système de coordonnées, celui de la zone lui est attribué " +
                  "(Lambert-93 en métropole, UTM local outre-mer). Au-delà de maxParcels parcelles ou maxBuildings bâtiments, " +
                  "rien n'est importé : réduisez la zone. Annulable en une seule étape avec U.")]
     public async Task<string> ImportCadastre(
-        [Description("« address », « extent » ou « parcel ». Déduit des paramètres si omis : address si une adresse est " +
-                     "donnée, parcel si codeInsee et section le sont, extent sinon.")] string? mode = null,
+        [Description("« address », « extent », « parcel » ou « commune ». Déduit des paramètres si omis : address si une " +
+                     "adresse est donnée, parcel si une section l'est, commune si seul codeInsee l'est, extent sinon.")] string? mode = null,
         [Description("Adresse postale, le plus précise possible (numéro, rue, code postal ou commune).")] string? address = null,
         [Description("Code INSEE de la commune (5 caractères, par exemple 33063 ; pour Paris, Lyon et Marseille, celui de " +
                      "l'arrondissement).")] string? codeInsee = null,
@@ -62,8 +65,8 @@ public sealed class CadastreTools(PluginClient plugin)
         [Description("Cadrer la vue sur les objets importés (vrai par défaut).")] bool zoomExtents = true,
         [Description("Ignorer les parcelles et feuilles déjà présentes dans le dessin, reconnues par leur identifiant en " +
                      "données d'objet (vrai par défaut).")] bool skipExisting = true,
-        [Description("Nombre maximal de parcelles (2000 par défaut) : au-delà, l'import est refusé.")] int maxParcels = DefaultMaxParcels,
-        [Description("Nombre maximal de bâtiments (4000 par défaut) : au-delà, l'import est refusé.")] int maxBuildings = DefaultMaxBuildings,
+        [Description("Nombre maximal de parcelles : au-delà, l'import est refusé. 2000 par défaut, 20 000 en mode commune.")] int? maxParcels = null,
+        [Description("Nombre maximal de bâtiments : au-delà, l'import est refusé. 4000 par défaut, 20 000 en mode commune.")] int? maxBuildings = null,
         IProgress<ProgressNotificationValue>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -86,13 +89,16 @@ public sealed class CadastreTools(PluginClient plugin)
 
         var actualMode = mode?.Trim().ToLowerInvariant() is { Length: > 0 } given ? given
             : !string.IsNullOrWhiteSpace(address) ? "address"
-            : !string.IsNullOrWhiteSpace(codeInsee) || !string.IsNullOrWhiteSpace(section) ? "parcel"
+            : !string.IsNullOrWhiteSpace(section) ? "parcel"
+            : !string.IsNullOrWhiteSpace(codeInsee) ? "commune"
             : "extent";
+        var parcelLimit = maxParcels ?? (actualMode == "commune" ? DefaultMaxCommuneParcels : DefaultMaxParcels);
+        var buildingLimit = maxBuildings ?? (actualMode == "commune" ? DefaultMaxCommuneBuildings : DefaultMaxBuildings);
 
         // AutoCAD et le plug-in d'abord : inutile de télécharger si le dessin est inaccessible.
         await plugin.CallAsync("status", cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var download = new Download(maxParcels, maxBuildings, progress, cancellationToken);
+        var download = new Download(parcelLimit, buildingLimit, progress, cancellationToken);
         object? addressInfo = null;
         BoundingBox? zoneOfBuildings = null;
         switch (actualMode)
@@ -140,7 +146,7 @@ public sealed class CadastreTools(PluginClient plugin)
                 var numbers = NormalizeNumbers(numero);
                 string TooManyInSection(int matched) =>
                     $"APICARTO renvoie {matched} parcelles pour la section « {sectionCode} » de {insee}, au-delà de maxParcels " +
-                    $"({maxParcels}). Si la section n'existe pas dans cette commune, le service renvoie toute la commune : " +
+                    $"({parcelLimit}). Si la section n'existe pas dans cette commune, le service renvoie toute la commune : " +
                     "vérifiez le code de section (search_cadastre_address donne les sections autour d'une adresse).";
 
                 var query = $"code_insee={insee}&section={sectionCode}";
@@ -171,8 +177,27 @@ public sealed class CadastreTools(PluginClient plugin)
                 break;
             }
 
+            case "commune":
+            {
+                var insee = NormalizeInsee(codeInsee);
+                if (!string.IsNullOrWhiteSpace(section) || !string.IsNullOrWhiteSpace(numero))
+                    throw new McpException("Le mode « commune » importe toute la commune : sans section ni numéro (mode « parcel » sinon).");
+
+                // APICARTO ne sert pas une commune entière (connexion coupée au bout de 50 s) : le WFS de la
+                // Géoplateforme la renvoie en quelques secondes, avec les mêmes attributs.
+                await download.CommuneParcelsAsync(insee, matched =>
+                    $"La commune {insee} compte {matched} parcelles, au-delà de maxParcels ({parcelLimit}) : rien n'a été importé. " +
+                    "Augmentez maxParcels en connaissance de cause (import plus long, dessin plus lourd), ou importez par section.").ConfigureAwait(false);
+                if (download.Parcels.Count == 0)
+                    throw new McpException($"Aucune parcelle pour la commune {insee} : vérifiez le code INSEE (celui de la commune, pas le " +
+                                           "code postal ; pour Paris, Lyon et Marseille, celui de l'arrondissement).");
+                if (includeSections)
+                    await download.CommuneSectionsAsync(insee).ConfigureAwait(false);
+                break;
+            }
+
             default:
-                throw new McpException($"Mode « {mode} » inconnu : address, extent ou parcel.");
+                throw new McpException($"Mode « {mode} » inconnu : address, extent, parcel ou commune.");
         }
 
         if (download.Parcels.Count == 0)
@@ -180,12 +205,15 @@ public sealed class CadastreTools(PluginClient plugin)
 
         if (includeBuildings)
         {
-            // En mode parcel, seulement les bâtiments des parcelles importées (l'emprise déborde sur les voisines).
+            string TooManyBuildings(int matched) =>
+                $"{matched} bâtiments dans la zone, au-delà de maxBuildings ({buildingLimit}) : rien n'a été importé. " +
+                "Réduisez la zone, ou augmentez maxBuildings en connaissance de cause.";
+            // En modes parcel et commune, seulement les bâtiments des parcelles importées : l'emprise déborde sur les
+            // voisines. Pour une commune, la requête par emprise est bien plus rapide que le filtre par code INSEE du
+            // WFS (mesuré : 0,5 s par page de 1000 bâtiments, contre 26 s puis des délais dépassés).
             var touchesParcels = Geo.TouchesAny(download.Parcels);
-            await download.BuildingsAsync(zoneOfBuildings ?? BoundingBox.Of(download.Parcels), source,
-                matched => $"{matched} bâtiments dans la zone, au-delà de maxBuildings ({maxBuildings}) : rien n'a été importé. " +
-                           "Réduisez la zone, ou augmentez maxBuildings en connaissance de cause.",
-                actualMode == "parcel" ? building => touchesParcels(building.Polygons) : null).ConfigureAwait(false);
+            await download.BuildingsAsync(zoneOfBuildings ?? BoundingBox.Of(download.Parcels), source, TooManyBuildings,
+                actualMode is "parcel" or "commune" ? building => touchesParcels(building.Polygons) : null).ConfigureAwait(false);
         }
 
         var first = download.Parcels[0].Polygons[0][0][0];
@@ -225,7 +253,7 @@ public sealed class CadastreTools(PluginClient plugin)
                 Buildings = includeBuildings ? download.Buildings.Count : (int?)null,
             },
             Import = result,
-            Source = "APICARTO (IGN), plan cadastral informatisé" + (includeBuildings
+            Source = (actualMode == "commune" ? "Parcellaire Express (IGN, Géoplateforme)" : "APICARTO (IGN), plan cadastral informatisé") + (includeBuildings
                 ? source == "bdtopo" ? " ; bâtiments : BD TOPO (IGN, Géoplateforme)" : " ; bâtiments : Parcellaire Express (IGN, Géoplateforme)"
                 : ""),
         }, PipeProtocol.JsonOptions);
@@ -236,7 +264,7 @@ public sealed class CadastreTools(PluginClient plugin)
                                          $"{MaxZoneMeters / 1000:0} km de côté. {advice}");
 
         Func<int, string> TooManyInZone(string where, string parameter) => matched =>
-            $"{matched} parcelles {where}, au-delà de maxParcels ({maxParcels}) : rien n'a été importé. " +
+            $"{matched} parcelles {where}, au-delà de maxParcels ({parcelLimit}) : rien n'a été importé. " +
             $"Réduisez « {parameter} », ou augmentez maxParcels en connaissance de cause (import plus long).";
     }
 
@@ -423,6 +451,46 @@ internal sealed class Download(int maxParcels, int maxBuildings, IProgress<Progr
             throw new McpException($"{_parcels.Count} parcelles au total, au-delà de maxParcels ({maxParcels}) : rien n'a été importé. Réduisez la zone.");
     }
 
+    /// <summary>Toutes les parcelles d'une commune (ou d'un arrondissement), depuis le WFS du Parcellaire Express.</summary>
+    public Task CommuneParcelsAsync(string insee, Func<int, string> tooMany) =>
+        FetchWfsAsync("CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle", CommuneFilter(insee), "parcelles", maxParcels, tooMany, feature =>
+        {
+            if (ParseParcel(feature) is { } parcel && parcel.Id.StartsWith(insee, StringComparison.OrdinalIgnoreCase))
+                _parcels.TryAdd(parcel.Id, parcel);
+        });
+
+    public Task CommuneSectionsAsync(string insee) =>
+        FetchWfsAsync("CADASTRALPARCELS.PARCELLAIRE_EXPRESS:feuille", CommuneFilter(insee), "feuilles", 5000,
+            matched => $"{matched} feuilles cadastrales : la commune est trop grande pour un import entier.", feature =>
+            {
+                if (ParseSection(feature) is { } section)
+                    _sections.TryAdd(section.Id, section);
+            });
+
+    /// <summary>
+    /// Filtre CQL d'une commune. Le Parcellaire Express code Paris, Lyon et Marseille par la commune entière et
+    /// l'arrondissement (75056 et 101), quand APICARTO et l'outil utilisent le code de l'arrondissement (75101).
+    /// </summary>
+    internal static string CommuneFilter(string insee)
+    {
+        var number = int.TryParse(insee, out var value) ? value : 0;
+        var city = number switch
+        {
+            >= 75101 and <= 75120 => "75056",
+            >= 69381 and <= 69389 => "69123",
+            >= 13201 and <= 13216 => "13055",
+            _ => null,
+        };
+        return city is null ? $"code_insee='{insee}'" : $"code_insee='{city}' AND code_arr='{insee[2..]}'";
+    }
+
+    private Task FetchWfsAsync(string typeName, string filter, string what, int max, Func<int, string> tooMany, Action<JsonElement> add)
+    {
+        var query = $"SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES={typeName}&CQL_FILTER={Uri.EscapeDataString(filter)}" +
+                    "&SRSNAME=EPSG:4326&OUTPUTFORMAT=application/json&SORTBY=gid";
+        return FetchAsync(start => $"{WfsUrl}?{query}&COUNT={WfsPageSize}&STARTINDEX={start}", WfsService, what, WfsPageSize, max, tooMany, add);
+    }
+
     public Task SectionsAsync(string query, Func<SectionData, bool>? keep = null) =>
         FetchApicartoAsync("division", query, 1000, matched => $"{matched} feuilles cadastrales dans la zone : réduisez-la.", feature =>
         {
@@ -512,7 +580,9 @@ internal sealed class Download(int maxParcels, int maxBuildings, IProgress<Progr
         if (string.IsNullOrEmpty(id))
             return null;
 
-        return new ParcelData(id, Text(properties, "nom_com"), Text(properties, "code_insee"), Text(properties, "section"),
+        // Le Parcellaire Express code Paris 75056 (arrondissement à part) : l'identifiant donne le code d'arrondissement.
+        var insee = id.Length >= 14 ? id[..5] : Text(properties, "code_insee");
+        return new ParcelData(id, Text(properties, "nom_com"), insee, Text(properties, "section"),
             Text(properties, "numero"),
             properties.TryGetProperty("contenance", out var area) && area.ValueKind == JsonValueKind.Number ? area.GetDouble() : 0,
             polygons);
@@ -525,8 +595,11 @@ internal sealed class Download(int maxParcels, int maxBuildings, IProgress<Progr
             return null;
 
         var sheet = properties.TryGetProperty("feuille", out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : (int?)null;
-        var id = $"{Text(properties, "code_insee")}{Text(properties, "com_abs")}{Text(properties, "section")}{sheet ?? 0:00}";
-        return new SectionData(id, Text(properties, "nom_com"), Text(properties, "code_insee"), Text(properties, "section"), sheet, polygons);
+        var insee = Text(properties, "code_arr") is { Length: 3 } arrondissement && arrondissement != "000" && Text(properties, "code_dep") is { } department
+            ? department + arrondissement
+            : Text(properties, "code_insee");
+        var id = $"{insee}{Text(properties, "com_abs")}{Text(properties, "section")}{sheet ?? 0:00}";
+        return new SectionData(id, Text(properties, "nom_com"), insee, Text(properties, "section"), sheet, polygons);
     }
 
     private static string? Text(JsonElement properties, string name) =>

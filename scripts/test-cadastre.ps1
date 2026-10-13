@@ -248,6 +248,24 @@ try {
         CheckText 'la parcelle déjà présente est ignorée' $neighbours.import.skippedExistingParcels 1
     }
 
+    Write-Host "Import d'une commune entière (serveur MCP, WFS de la Géoplateforme)"
+    # Auriolles (33020) : environ 500 parcelles, importées en quelques secondes.
+    $commune = McpOk 'commune entière par son seul code INSEE' 'import_cadastre' '{"codeInsee":"33020","includeBuildings":true,"layerPrefix":"TCOM","zoomExtents":false}' -Write
+    if ($commune) {
+        CheckText 'mode déduit' $commune.mode 'commune'
+        Check 'toutes les parcelles téléchargées sont importées' ($commune.import.importedParcels -eq $commune.downloaded.parcels -and $commune.downloaded.parcels -gt 400) "($($commune.import.importedParcels))"
+        Check 'feuilles de la commune' ($commune.import.importedSections -ge 1) "($($commune.import.importedSections))"
+        Check 'bâtiments de la commune' ($commune.import.importedBuildings -ge 1) "($($commune.import.importedBuildings))"
+        CheckText 'une seule commune' ($commune.import.communes -join ',') 'Auriolles'
+        Check 'parcelles de la commune seulement' (@($commune.import.parcels | Where-Object { -not $_.id.StartsWith('33020') }).Count -eq 0)
+        $again = McpOk 'réimport de la commune' 'import_cadastre' '{"codeInsee":"33020","layerPrefix":"TCOM","zoomExtents":false}' -Write
+        if ($again) { CheckText 'réimport : tout est déjà présent' "$($again.import.importedParcels)/$($again.import.skippedExistingParcels)" "0/$($commune.downloaded.parcels)" }
+    }
+    McpError 'commune au-delà de maxParcels' 'import_cadastre' '{"codeInsee":"33020","maxParcels":50}' '*compte*parcelles*maxParcels (50)*'
+    McpError 'arrondissement de Paris (75101 = 75056 + 101)' 'import_cadastre' '{"codeInsee":"75101","maxParcels":10}' '*75101 compte*'
+    McpError 'commune et numéro : mode parcel attendu' 'import_cadastre' '{"mode":"commune","codeInsee":"33020","numero":"12"}' '*sans section ni numéro*'
+    McpError 'commune inconnue' 'import_cadastre' '{"codeInsee":"99999"}' '*Aucune parcelle pour la commune*'
+
     Write-Host "Import par adresse (serveur MCP, BAN puis APICARTO)"
     $address = McpOk 'import autour d''une adresse' 'import_cadastre' '{"address":"1 cours de l''Intendance 33000 Bordeaux","buffer":20,"layerPrefix":"TADR","zoomExtents":false}' -Write
     if ($address) {
