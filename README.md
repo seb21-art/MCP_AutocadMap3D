@@ -24,7 +24,7 @@ Exemples de demandes à l'assistant :
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.30.0, 176 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.31.0, 176 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -634,7 +634,7 @@ Cadastre français (données ouvertes de l'IGN et Base Adresse Nationale) :
 | Outil | Rôle |
 | --- | --- |
 | `search_cadastre_address` | Géocode une adresse (BAN) et donne la parcelle qui la contient, puis les parcelles du rayon triées par distance, sans modifier le dessin |
-| `import_cadastre` | Télécharge le plan cadastral (APICARTO de l'IGN) et le dessine dans le système du dessin : parcelles, numéros, feuilles de sections, bâtiments en option (2D ou 3D), données d'objet |
+| `import_cadastre` | Télécharge le plan cadastral (APICARTO de l'IGN, ou Parcellaire Express pour une commune entière) et le dessine dans le système du dessin : parcelles, numéros, feuilles de sections, bâtiments en option (2D ou 3D), données d'objet |
 
 - **Modes d'import** :
   - `address` : carré de demi-côté `buffer` (100 m par défaut) autour d'une adresse. Une adresse ambiguë (même rue
@@ -643,11 +643,17 @@ Cadastre français (données ouvertes de l'IGN et Base Adresse Nationale) :
     coordonnées.
   - `parcel` : code INSEE, section (`A` est complété en `0A`) et un ou plusieurs numéros (`81, 82`), ou toute la
     section. Avec `buffer`, les parcelles voisines dans ce rayon sont importées aussi.
-- **Garde-fous** : au-delà de `maxParcels` parcelles (2000 par défaut) ou d'une zone de 10 km de côté, rien n'est
-  importé et le message donne le nombre de parcelles. Les réponses d'APICARTO sont paginées (sans troncature
+  - `commune` : toute une commune, par son seul code INSEE (mode déduit si ni section ni numéro ne sont donnés),
+    avec ses feuilles et, sur demande, ses bâtiments. Pour Paris, Lyon et Marseille, code de l'arrondissement
+    (75101, 69381, 13201…). APICARTO ne sert pas une commune entière (connexion coupée au bout de 50 s) : les
+    parcelles et feuilles viennent du WFS Parcellaire Express de la Géoplateforme, avec les mêmes attributs.
+    Mesuré : Abzac (33001, 4 910 parcelles, 23 feuilles, 2 456 bâtiments) en 6 s, dont 1 s de dessin dans AutoCAD.
+- **Garde-fous** : au-delà de `maxParcels` parcelles (2000 par défaut, 20 000 en mode `commune`) ou d'une zone de
+  10 km de côté (hors mode `commune`), rien n'est importé et le message donne le nombre de parcelles : Bordeaux
+  (63 309 parcelles) demande d'augmenter `maxParcels` en connaissance de cause, ou d'importer par section. Les réponses d'APICARTO sont paginées (sans troncature
   silencieuse) et refiltrées localement : pour une section inexistante, le service renvoie toute la commune.
-- **Bâtiments** (`includeBuildings`, désactivé par défaut) : ceux de la zone, ou en mode `parcel` ceux qui touchent
-  les parcelles importées, téléchargés sur la Géoplateforme de l'IGN (WFS). Deux sources (`buildingSource`) :
+- **Bâtiments** (`includeBuildings`, désactivé par défaut) : ceux de la zone, ou en modes `parcel` et `commune` ceux
+  qui touchent les parcelles importées (`maxBuildings` : 4000 par défaut, 20 000 en mode `commune`), téléchargés sur la Géoplateforme de l'IGN (WFS). Deux sources (`buildingSource`) :
   - `cadastre` (par défaut) : bâti du plan cadastral (Parcellaire Express), aligné sur les parcelles, en dur ou léger ;
   - `bdtopo` : BD TOPO, avec nature, usage, hauteur, nombre d'étages et de logements, altitudes du sol et du toit,
     identifiant RNB.

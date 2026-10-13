@@ -50,7 +50,7 @@ Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Serv
 - Xref (références externes DWG) : `list_xrefs`, `attach_xref`, `detach_xrefs`, `reload_xrefs`, `unload_xrefs`, `bind_xrefs`, `edit_xref`
 - Présentation : `list_layouts`, `set_current_layout`, `create_layout`, `rename_layout`, `delete_layout`, `list_viewports`, `create_viewport`, `set_viewport`
 - Impression / PDF : `list_plot_devices`, `list_plot_styles`, `export_pdf`, `plot_drawing`
-- Cadastre : `search_cadastre_address`, `import_cadastre` (IGN APICARTO, BAN, bâtiments BD TOPO en 2D ou 3D ; projection Lambert-93 en C# pur quand Map 3D est absent)
+- Cadastre : `search_cadastre_address`, `import_cadastre` (IGN APICARTO, BAN, commune entière par le WFS Parcellaire Express, bâtiments BD TOPO en 2D ou 3D ; projection Lambert-93 en C# pur quand Map 3D est absent)
 - Rendu : `list_materials`, `set_material`, `assign_material`, `list_lights`, `set_light`, `delete_lights`, `get_sun`, `set_sun` (calé sur le système de coordonnées), `get_view_ambiance`, `set_view_ambiance`
 - FDO : `list_fdo_providers`, `list_fdo_connections`, `connect_fdo`, `describe_fdo`, `add_fdo_layer`, `list_fdo_layers`, `query_fdo`, `set_fdo_layer`, `set_fdo_layer_style`, `insert_fdo_features`, `update_fdo_features`, `delete_fdo_features`, `remove_fdo_layer`, `disconnect_fdo`, `get_fdo_selection`
 - Points et réseaux : `import_points` (CSV, TXT, XYZ), `create_network_topology`, `trace_network` (chemin, propagation, amont, aval, vannes fermées), `delete_topology`
