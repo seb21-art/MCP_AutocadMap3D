@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using ModelContextProtocol.Server;
 
 namespace McpMap3D.Server.Tools;
@@ -23,18 +24,22 @@ public sealed class FdoTools(PluginClient plugin)
 
     [McpServerTool(Name = "connect_fdo", Title = "Connecter une source FDO",
         ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = true)]
-    [Description("Teste une connexion et l'enregistre à la racine du dépôt (Library://MCP_nom), où MAPCONNECT la montre aussi. connectionString est une suite Clé=valeur. createFile crée un SDF vide. " +
+    [Description("Teste une connexion et l'enregistre à la racine du dépôt (Library://MCP_nom), où MAPCONNECT la montre aussi. connectionString est une suite Clé=valeur. createFile crée un SDF vide, dans le système de coordonnées du dessin " +
+                 "(longitude/latitude s'il n'en a pas), avec une classe (className), ses champs (fields) et son type de géométrie (geometry). " +
                  "Une source du même nom est refusée, sauf avec replace (et jamais si un calque l'affiche). " +
-                 "Ne modifie pas les objets de la source. La définition n'est pas annulée par U.")]
+                 "Ne modifie pas les objets de la source (voir insert_fdo_features). La définition n'est pas annulée par U.")]
     public Task<string> Connect(
         [Description("Nom technique du fournisseur, tel que renvoyé par list_fdo_providers.")] string provider,
         [Description("Chaîne de connexion Clé=valeur;Clé=valeur. File=chemin pour un SDF.")] string? connectionString = null,
         [Description("Nom de la source (préfixé MCP_ dans le dépôt). Déduit du fichier si omis (« Source » sans fichier) : nommez les connexions aux bases de données.")] string? name = null,
         [Description("Créer un fichier SDF vide à l'emplacement File de la chaîne, puis le connecter.")] bool createFile = false,
         [Description("Remplacer une source existante du même nom, si aucun calque ne l'affiche. Faux par défaut.")] bool replace = false,
+        [Description("Avec createFile : nom de la classe du SDF (Empty par défaut).")] string? className = null,
+        [Description("Avec createFile : champs de la classe, en plus de l'identifiant automatique Id.")] SdfFieldInput[]? fields = null,
+        [Description("Avec createFile : géométrie de la classe, point, line, polygon ou any (défaut).")] string? geometry = null,
         CancellationToken cancellationToken = default) =>
         plugin.CallForTextAsync("connect_fdo",
-            new { provider, connectionString, name, createFile, replace }, cancellationToken: cancellationToken);
+            new { provider, connectionString, name, createFile, replace, className, fields, geometry }, cancellationToken: cancellationToken);
 
     [McpServerTool(Name = "describe_fdo", Title = "Décrire une source FDO",
         ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
@@ -130,4 +135,105 @@ public sealed class FdoTools(PluginClient plugin)
         [Description("Nombre maximum d'objets par calque, de 1 à 200.")] int limit = 50,
         CancellationToken cancellationToken = default) =>
         plugin.CallForTextAsync("get_fdo_selection", new { limit }, cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "insert_fdo_features", Title = "Ajouter des objets à une source FDO",
+        ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = true)]
+    [Description("Ajoute des objets dans une source FDO (SDF, SHP, SQLite, PostGIS…), pas dans le dessin. Chaque objet " +
+                 "a des propriétés et une géométrie : wkt (dans le système de la source), ou handle d'un objet du dessin " +
+                 "(point, bloc, ligne, polyligne, cercle), converti du système du dessin vers celui de la source. Les calques " +
+                 "qui affichent la source sont redessinés. Map 3D enregistre la modification pour U. 1000 objets au plus.")]
+    public Task<string> InsertFeatures(
+        [Description("Objets à ajouter.")] FdoFeatureInput[] features,
+        [Description("Source (identifiant ou nom) ; ou indiquez layer.")] string? resource = null,
+        [Description("Classe Schéma:Classe ou Classe (voir describe_fdo).")] string? className = null,
+        [Description("Calque FDO dont la source et la classe sont utilisées, à la place de resource et className.")] string? layer = null,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("insert_fdo_features", new { features, resource, className, layer },
+            busyTimeout: TimeSpan.FromSeconds(120), cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "update_fdo_features", Title = "Modifier des objets d'une source FDO",
+        ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = true)]
+    [Description("Modifie les objets d'une source FDO qui répondent au filtre : propriétés et, au besoin, géométrie (wkt ou " +
+                 "handle, comme insert_fdo_features). Au-delà de 100 objets, expected doit donner leur nombre exact. " +
+                 "Map 3D enregistre la modification pour U.")]
+    public Task<string> UpdateFeatures(
+        [Description("Filtre FDO, par exemple NOM = 'V12', DIAMETRE >= 100, ou FeatId = 3.")] string? filter = null,
+        [Description("Nouvelles valeurs, par exemple {\"ETAT\":\"fermée\"}.")] JsonElement? properties = null,
+        [Description("Nouvelle géométrie en WKT, dans le système de la source.")] string? wkt = null,
+        [Description("Nouvelle géométrie prise sur un objet du dessin.")] string? handle = null,
+        [Description("Source (identifiant ou nom) ; ou indiquez layer.")] string? resource = null,
+        [Description("Classe Schéma:Classe ou Classe.")] string? className = null,
+        [Description("Calque FDO, à la place de resource et className.")] string? layer = null,
+        [Description("Tous les objets de la classe, sans filtre.")] bool all = false,
+        [Description("Nombre d'objets attendu, obligatoire au-delà de 100.")] int? expected = null,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("update_fdo_features",
+            new { filter, properties, wkt, handle, resource, className, layer, all = all ? true : (bool?)null, expected },
+            busyTimeout: TimeSpan.FromSeconds(120), cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "delete_fdo_features", Title = "Supprimer des objets d'une source FDO",
+        ReadOnly = false, Destructive = true, Idempotent = true, OpenWorld = true)]
+    [Description("Supprime de la source FDO les objets qui répondent au filtre. Au-delà de 100 objets, expected doit " +
+                 "donner leur nombre exact ; all=true vise toute la classe. Map 3D enregistre la suppression pour U.")]
+    public Task<string> DeleteFeatures(
+        [Description("Filtre FDO, par exemple FeatId = 3 ou ETAT = 'abandonné'.")] string? filter = null,
+        [Description("Source (identifiant ou nom) ; ou indiquez layer.")] string? resource = null,
+        [Description("Classe Schéma:Classe ou Classe.")] string? className = null,
+        [Description("Calque FDO, à la place de resource et className.")] string? layer = null,
+        [Description("Tous les objets de la classe, sans filtre.")] bool all = false,
+        [Description("Nombre d'objets attendu, obligatoire au-delà de 100.")] int? expected = null,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("delete_fdo_features",
+            new { filter, resource, className, layer, all = all ? true : (bool?)null, expected },
+            busyTimeout: TimeSpan.FromSeconds(120), cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "set_fdo_layer_style", Title = "Styler un calque FDO",
+        ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Règle le style d'un calque FDO vectoriel : couleur, contour, épaisseur, transparence, taille des points, " +
+                 "analyse thématique (une couleur par valeur ou par plage d'une propriété, plus « Autres ») et étiquettes. " +
+                 "themeProperty seul colore chaque valeur distincte (30 au plus). Remplace le style précédent. " +
+                 "N'est pas annulé par U.")]
+    public Task<string> SetLayerStyle(
+        [Description("Nom du calque FDO.")] string name,
+        [Description(ToolHelp.Color + " Remplissage (surfaces), trait (lignes) ou symbole (points), sans thème.")] string? color = null,
+        [Description("Couleur du contour des surfaces et des symboles.")] string? outlineColor = null,
+        [Description("Épaisseur des traits en mm (0,25 par défaut).")] double? lineWeight = null,
+        [Description("Transparence du remplissage des surfaces, 0 à 100 % (60 par défaut).")] int? transparency = null,
+        [Description("Taille des symboles de points, en points (6 par défaut).")] double? pointSize = null,
+        [Description("Propriété de l'analyse thématique.")] string? themeProperty = null,
+        [Description("Valeurs de l'analyse thématique, avec leur couleur et leur légende.")] ThemeValueInput[]? themeValues = null,
+        [Description("Plages de l'analyse thématique : min inclus, max exclu.")] ThemeRangeInput[]? themeRanges = null,
+        [Description("Couleur des objets hors des valeurs ou plages (gris par défaut).")] string? otherColor = null,
+        [Description("Propriété affichée en étiquette.")] string? labelProperty = null,
+        [Description("Hauteur des étiquettes en points (9 par défaut).")] double? labelHeight = null,
+        [Description("Couleur des étiquettes (noir par défaut).")] string? labelColor = null,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("set_fdo_layer_style",
+            new { name, color, outlineColor, lineWeight, transparency, pointSize, themeProperty, themeValues, themeRanges, otherColor, labelProperty, labelHeight, labelColor },
+            busyTimeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
 }
+
+/// <summary>Champ d'un SDF créé par connect_fdo.</summary>
+public sealed record SdfFieldInput(
+    [property: Description("Nom du champ.")] string Name,
+    [property: Description("Type : string (défaut), int, double, bool ou date.")] string? Type = null,
+    [property: Description("Longueur maximale d'un texte (255 par défaut).")] int? Length = null);
+
+/// <summary>Objet à ajouter dans une source FDO.</summary>
+public sealed record FdoFeatureInput(
+    [property: Description("Valeurs des propriétés, par exemple {\"NOM\":\"V12\",\"DIAMETRE\":110}.")] JsonElement? Properties = null,
+    [property: Description("Géométrie en WKT, dans le système de la source, par exemple POINT (850000 6550000).")] string? Wkt = null,
+    [property: Description("Ou handle d'un objet du dessin dont la géométrie est reprise.")] string? Handle = null);
+
+/// <summary>Valeur d'une analyse thématique.</summary>
+public sealed record ThemeValueInput(
+    [property: Description("Valeur de la propriété.")] JsonElement Value,
+    [property: Description("Couleur ; palette automatique si omise.")] string? Color = null,
+    [property: Description("Légende ; la valeur si omise.")] string? Label = null);
+
+/// <summary>Plage d'une analyse thématique.</summary>
+public sealed record ThemeRangeInput(
+    [property: Description("Minimum inclus.")] double? Min = null,
+    [property: Description("Maximum exclu.")] double? Max = null,
+    [property: Description("Couleur ; palette automatique si omise.")] string? Color = null,
+    [property: Description("Légende.")] string? Label = null);

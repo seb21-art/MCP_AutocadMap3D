@@ -44,6 +44,28 @@ public sealed class CoordinateSystemTools(PluginClient plugin)
         plugin.CallForTextAsync("convert_coordinates", new { points, from, to },
             busyTimeout: TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
 
+    [McpServerTool(Name = "reproject_entities", Title = "Reprojeter des objets",
+        ReadOnly = false, Destructive = true, Idempotent = false, OpenWorld = false)]
+    [Description("Déplace des objets du dessin d'un système de coordonnées à un autre, changement de datum compris, par " +
+                 "exemple de CC46 vers Lambert-93 (set_coordinate_system, lui, ne déplace rien). Les sommets des lignes, " +
+                 "polylignes, splines et points sont convertis un à un ; cercles, arcs, textes, blocs, hachures et cotes " +
+                 "sont déplacés, tournés et mis à l'échelle selon la déformation locale de la projection. Les altitudes " +
+                 "ne changent pas. Tout l'espace objet par défaut, ou les objets filtrés. assign=true attribue ensuite le " +
+                 "système d'arrivée au dessin.")]
+    public Task<string> ReprojectEntities(
+        [Description("Système d'arrivée : code Autodesk, EPSG:n ou numéro EPSG, lonlat.")] string to,
+        [Description("Système d'origine : drawing (défaut, système du dessin), code, EPSG ou lonlat.")] string? from = null,
+        [Description("Attribuer au dessin le système d'arrivée, une fois les objets reprojetés.")] bool assign = false,
+        [Description("Calques à retenir ; les jokers * et ? sont acceptés. Tous si omis.")] string[]? layers = null,
+        [Description("Types DXF à retenir. Tous si omis.")] string[]? types = null,
+        [Description(ToolHelp.Where)] EntityCondition[]? where = null,
+        [Description("Handles d'objets précis, au lieu de tout l'espace objet.")] string[]? handles = null,
+        [Description("Objets sélectionnés par l'utilisateur dans AutoCAD, au lieu de tout l'espace objet.")] bool selection = false,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("reproject_entities",
+            new { to, from, assign = assign ? true : (bool?)null, layers, types, where, handles, selection = selection ? true : (bool?)null },
+            busyTimeout: TimeSpan.FromSeconds(120), cancellationToken: cancellationToken);
+
     [McpServerTool(Name = "set_coordinate_system", Title = "Attribuer un système de coordonnées au dessin",
         ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
     [Description("Attribue au dessin un système de coordonnées (code Autodesk, trouvé avec " +

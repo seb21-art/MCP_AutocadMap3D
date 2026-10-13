@@ -206,6 +206,11 @@ internal sealed class ToolRegistry
             .Add("search_coordinate_systems", DrawingAccess.Read, CoordinateSystemTools.SearchCoordinateSystems)
             .Add("convert_coordinates", DrawingAccess.Read, CoordinateSystemTools.ConvertCoordinates)
             .Add("set_coordinate_system", DrawingAccess.Write, CoordinateSystemTools.SetCoordinateSystem)
+            .Add("reproject_entities", DrawingAccess.Write, ReprojectTools.ReprojectEntities)
+            .Add("import_points", DrawingAccess.Write, SurveyTools.ImportPoints)
+            .Add("create_network_topology", DrawingAccess.Write, TopologyTools.CreateNetworkTopology)
+            .Add("trace_network", DrawingAccess.Read, TopologyTools.TraceNetwork)
+            .Add("delete_topology", DrawingAccess.Write, TopologyTools.DeleteTopology)
             .Add("list_ucs", DrawingAccess.Read, UcsTools.ListUcs)
             .Add("set_ucs", DrawingAccess.Write, UcsTools.SetUcs)
             .Add("delete_ucs", DrawingAccess.Write, UcsTools.DeleteUcs)
@@ -260,6 +265,10 @@ internal sealed class ToolRegistry
             .Add("remove_fdo_layer", DrawingAccess.Write, FdoTools.RemoveLayer)
             .Add("disconnect_fdo", DrawingAccess.Write, FdoTools.Disconnect)
             .Add("get_fdo_selection", DrawingAccess.Read, FdoTools.GetSelection)
+            .Add("insert_fdo_features", DrawingAccess.Write, FdoEditTools.InsertFeatures)
+            .Add("update_fdo_features", DrawingAccess.Write, FdoEditTools.UpdateFeatures)
+            .Add("delete_fdo_features", DrawingAccess.Write, FdoEditTools.DeleteFeatures)
+            .Add("set_fdo_layer_style", DrawingAccess.Write, FdoStyleTools.SetLayerStyle)
             .Add("import_gis", DrawingAccess.Write, GisTools.ImportGis)
             .Add("export_gis", DrawingAccess.Document, GisTools.ExportGis);
 }
