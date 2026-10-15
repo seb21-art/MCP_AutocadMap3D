@@ -30,6 +30,9 @@ internal static class ReadTools
             Modified = Convert.ToInt32(AcApp.GetSystemVariable("DBMOD")) != 0,
             ReadOnly = document.IsReadOnly,
             Units = database.Insunits.ToString(),
+            UnitSettings = UnitsTools.GetUnits(database),
+            Settings = SettingsTools.Describe(database),
+            Properties = SettingsTools.DescribeProperties(database),
             CurrentLayer = currentLayer.Name,
             CurrentSpace = database.TileMode ? "model" : "paper",
             Extents = database.Extmin.X <= database.Extmax.X

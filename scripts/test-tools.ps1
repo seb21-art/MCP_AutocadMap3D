@@ -180,13 +180,80 @@ try {
         Test-Error 'undo au-delà des appels du connecteur' 'undo' "{`"count`":$($undone.remainingConnectorSteps + 1)}" 'invalid_params'
     }
 
-    Write-Host "Système de coordonnées"
+    Write-Host "Unités du dessin"
     $initialCs = (Invoke-Tool 'get_coordinate_system').result
+    Test-Tool 'set_drawing_units (formats)' 'set_drawing_units' '{"lengthFormat":"decimal","lengthPrecision":3,"angleFormat":"dms","anglePrecision":2,"angleBase":90,"clockwise":true}' {
+        param($r) $r.after.lengthPrecision -eq 3 -and $r.after.angleFormat -eq 'dms' -and $r.after.angleBase -eq 90 -and $r.after.clockwise
+    } | Out-Null; $writes++
+    Test-Tool 'get_drawing_info : réglages relus' 'get_drawing_info' '{}' { param($r) $r.unitSettings.anglePrecision -eq 2 -and $r.unitSettings.lengthFormat -eq 'decimal' } | Out-Null
+    Test-Tool 'sans unité' 'set_drawing_units' '{"insertionUnits":"unitless"}' { param($r) $r.after.insertionUnits -eq 'Undefined' } | Out-Null; $writes++
+    Test-Error 'mise à l''échelle depuis « sans unité »' 'set_drawing_units' '{"insertionUnits":"m","scaleContent":true}' 'invalid_params' -IsWrite
+    Test-Tool 'unité d''insertion en mètres' 'set_drawing_units' '{"insertionUnits":"m"}' { param($r) $r.after.insertionUnits -eq 'Meters' } | Out-Null; $writes++
+    if (-not $initialCs.assigned) {
+        $unitLine = Test-Tool 'ligne de 10 m' 'create_line' "{`"start`":[0,0],`"end`":[10,0],`"layer`":`"$testLayer`"}" { param($r) $r.handle }; $writes++
+        Test-Tool 'mètres -> centimètres, objets mis à l''échelle' 'set_drawing_units' '{"insertionUnits":"cm","scaleContent":true}' {
+            param($r) $r.after.insertionUnits -eq 'Centimeters' -and $r.scaled.factor -eq 100 -and $r.scaled.entities -ge 1
+        } | Out-Null; $writes++
+        Test-Tool 'ligne de 1000 cm' 'list_entities' "{`"handles`":[`"$($unitLine.handle)`"],`"includeGeometry`":true}" {
+            param($r) [math]::Abs($r.entities[0].end[0] - 1000) -lt 0.001
+        } | Out-Null
+    }
+    Test-Error 'unité inconnue' 'set_drawing_units' '{"insertionUnits":"coudées"}' 'invalid_params' -IsWrite
+    Test-Error 'format inconnu' 'set_drawing_units' '{"lengthFormat":"romain"}' 'invalid_params' -IsWrite
+
+    Write-Host "Réglages du dessin"
+    Test-Tool 'set_linetype_scale' 'set_linetype_scale' '{"globalScale":2.5,"paperSpaceScaling":false}' {
+        param($r) $r.after.globalScale -eq 2.5 -and -not $r.after.paperSpaceScaling
+    } | Out-Null; $writes++
+    Test-Error 'set_linetype_scale sans réglage' 'set_linetype_scale' '{}' 'invalid_params' -IsWrite
+    $scales = Test-Tool 'list_annotation_scales' 'list_annotation_scales' '{}' { param($r) $r.count -gt 0 }
+    Test-Tool 'set_annotation_scale 1:333 (créée)' 'set_annotation_scale' '{"scale":"1:333"}' {
+        # Ratio réel : l'unité du dessin (centimètres à ce stade) est prise en compte.
+        param($r) $r.created -and $r.current -eq '1:333' -and $r.scale.ratio -eq '1:333' -and $r.scale.paperUnits -eq 1
+    } | Out-Null; $writes++
+    Test-Tool 'set_annotation_scale par son nom' 'set_annotation_scale' "{`"name`":`"$($scales.scales[0].name)`"}" { param($r) -not $r.created -and $r.current -eq $scales.scales[0].name } | Out-Null; $writes++
+    Test-Error 'échelle d''annotation inconnue' 'set_annotation_scale' '{"name":"PAS_UNE_ECHELLE"}' 'invalid_params' -IsWrite
+    Test-Tool 'set_point_style (croix cerclée)' 'set_point_style' '{"shape":"cross","circle":true,"size":0.5}' { param($r) $r.after.mode -eq 35 -and $r.after.size -eq 0.5 } | Out-Null; $writes++
+    Test-Error 'PDMODE invalide' 'set_point_style' '{"mode":7}' 'invalid_params' -IsWrite
+    Test-Tool 'set_drawing_properties' 'set_drawing_properties' '{"title":"Essai MCP","customProperties":{"MCP_TEST":"oui"}}' {
+        param($r) $r.properties.title -eq 'Essai MCP' -and $r.properties.custom.MCP_TEST -eq 'oui'
+    } | Out-Null; $writes++
+    Test-Tool 'get_drawing_info : réglages et propriétés' 'get_drawing_info' '{}' {
+        param($r) $r.settings.linetypeScale.globalScale -eq 2.5 -and $r.settings.pointStyle.circle -and $r.properties.custom.MCP_TEST -eq 'oui'
+    } | Out-Null
+    Test-Tool 'propriété personnalisée retirée' 'set_drawing_properties' '{"customProperties":{"MCP_TEST":null}}' { param($r) -not $r.properties.custom.MCP_TEST } | Out-Null; $writes++
+
+    Write-Host "Calques"
+    $renamed = "MCP_REN_$(Get-Date -Format HHmmss)"
+    Test-Tool 'calque à renommer' 'create_layer' "{`"name`":`"$renamed`"}" { param($r) $r.name } | Out-Null; $writes++
+    Test-Tool 'rename_layer' 'rename_layer' "{`"name`":`"$renamed`",`"newName`":`"$($renamed)_B`"}" { param($r) $r.name -eq "$($renamed)_B" } | Out-Null; $writes++
+    Test-Error 'renommer le calque 0' 'rename_layer' '{"name":"0","newName":"ZERO"}' 'invalid_params' -IsWrite
+    Test-Error 'renommer vers un calque existant' 'rename_layer' "{`"name`":`"$($renamed)_B`",`"newName`":`"$testLayer`"}" 'invalid_params' -IsWrite
+    $merged = (Test-Tool 'ligne sur le calque à fusionner' 'create_line' "{`"start`":[0,30],`"end`":[5,30],`"layer`":`"$($renamed)_B`"}" { param($r) $r.handle }).handle; $writes++
+    Test-Error 'supprimer un calque utilisé' 'delete_layers' "{`"names`":[`"$($renamed)_B`"]}" 'invalid_params' -IsWrite
+    Test-Tool 'delete_layers avec mergeInto' 'delete_layers' "{`"names`":[`"$($renamed)_B`"],`"mergeInto`":`"$testLayer`"}" {
+        param($r) $r.deleted -eq 1 -and $r.objectsMoved -eq 1
+    } | Out-Null; $writes++
+    Test-Tool 'objet passé sur le calque cible' 'list_entities' "{`"handles`":[`"$merged`"]}" { param($r) $r.entities[0].layer -eq $testLayer } | Out-Null
+
+    Write-Host "Purge et audit"
+    Test-Tool 'calque vide à purger' 'create_layer' '{"name":"MCP_PURGE_1"}' { param($r) $r.name } | Out-Null; $writes++
+    Test-Tool 'purge_drawing (simulation)' 'purge_drawing' '{"types":["layers"],"names":["MCP_PURGE_*"],"dryRun":true}' {
+        param($r) $r.dryRun -and $r.items.layers.count -eq 1
+    } | Out-Null; $writes++
+    Test-Tool 'purge_drawing' 'purge_drawing' '{"types":["layers"],"names":["MCP_PURGE_*"]}' { param($r) $r.purged -eq 1 } | Out-Null; $writes++
+    Test-Tool 'calque purgé' 'list_layers' '{"names":["MCP_PURGE_*"]}' { param($r) $r.count -eq 0 } | Out-Null
+    Test-Error 'type de purge inconnu' 'purge_drawing' '{"types":["calques"]}' 'invalid_params' -IsWrite
+    $audit = Test-Tool 'audit_drawing (rapport)' 'audit_drawing' '{}' { param($r) $r.lines.Count -gt 0 -or $r.note }; $writes++
+    if ($audit.lines) { $audit.lines | Select-Object -Last 4 | ForEach-Object { Write-Host "        $_" } } else { Write-Host "        $($audit.note)" }
+
+    Write-Host "Système de coordonnées"
     Test-Tool 'search_coordinate_systems (EPSG 2154)' 'search_coordinate_systems' '{"query":"2154","limit":3}' { param($r) $r.results[0].code -eq 'Lambert93' } | Out-Null
     Test-Tool 'search_coordinate_systems (mots-clés)' 'search_coordinate_systems' '{"query":"RGF93 CC46","limit":3}' { param($r) $r.results[0].code -eq 'RGF93.CC46' } | Out-Null
     Test-Tool 'set_coordinate_system (forcé)' 'set_coordinate_system' '{"code":"RGF93.CC46","force":true}' { param($r) $r.assigned -eq 'RGF93.CC46' } | Out-Null; $writes++
     Test-Tool 'get_coordinate_system' 'get_coordinate_system' '{}' { param($r) $r.system.code -eq 'RGF93.CC46' } | Out-Null
     Test-Error 'système inconnu' 'set_coordinate_system' '{"code":"PAS.UN.CODE"}' 'invalid_params' -IsWrite
+    Test-Error 'mise à l''échelle d''un dessin géoréférencé' 'set_drawing_units' '{"insertionUnits":"km","scaleContent":true}' 'invalid_params' -IsWrite
     # Origines des projections : longitude 3°, latitude 46,5° -> Lambert-93 (700 000 ; 6 600 000) ;
     # longitude 3°, latitude 46° -> CC46 (1 700 000 ; 5 200 000).
     Test-Tool 'convert_coordinates lonlat -> EPSG:2154' 'convert_coordinates' '{"points":[[3,46.5]],"from":"lonlat","to":"EPSG:2154"}' {
@@ -243,6 +310,9 @@ try {
         while ($true) {
             $final = (Invoke-Tool 'get_drawing_info').result
             $restored = $final.modelSpaceEntityCount -eq $info.modelSpaceEntityCount -and $final.layerCount -eq $info.layerCount
+            $restored = $restored -and (($final.unitSettings | ConvertTo-Json -Compress) -eq ($info.unitSettings | ConvertTo-Json -Compress))
+            $restored = $restored -and (($final.settings | ConvertTo-Json -Compress -Depth 4) -eq ($info.settings | ConvertTo-Json -Compress -Depth 4))
+            $restored = $restored -and (($final.properties | ConvertTo-Json -Compress -Depth 4) -eq ($info.properties | ConvertTo-Json -Compress -Depth 4))
             $finalCs = (Invoke-Tool 'get_coordinate_system').result
             $restored = $restored -and ($finalCs.assigned -eq $initialCs.assigned) -and ($finalCs.system.code -eq $initialCs.system.code)
             $restored = $restored -and ((Invoke-Tool 'list_linetypes').result.loaded.Count -eq $initialLinetypes)
@@ -255,7 +325,7 @@ try {
         if ($restored -and $extra -gt 0) {
             Write-Host "  AVERT dessin revenu à son état initial après $extra U supplémentaire(s) : étape(s) d'annulation créée(s) hors du connecteur (par exemple COVANEWS de Covadis au démarrage)" -ForegroundColor Yellow
         } elseif ($restored) {
-            Write-Host "  OK    dessin revenu à son état initial ($($final.modelSpaceEntityCount) objets, $($final.layerCount) calques)" -ForegroundColor Green
+            Write-Host "  OK    dessin revenu à son état initial ($($final.modelSpaceEntityCount) objets, $($final.layerCount) calques, unités $($final.units))" -ForegroundColor Green
         } else {
             Write-Host "  ÉCHEC annulation : $($final.modelSpaceEntityCount) objets / $($final.layerCount) calques, attendu $($info.modelSpaceEntityCount) / $($info.layerCount)" -ForegroundColor Red
             $failures++
