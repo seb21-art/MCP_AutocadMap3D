@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (191 tools: 2D
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (193 tools: 2D
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.33.0, 191 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.34.0, 193 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 191 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 193 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -267,6 +267,20 @@ Réglages, calques et entretien du dessin :
   de 1:1000 : `list_annotation_scales` l'indique dans `ratio`.
 - **Annulation** : chacun de ces outils est une étape de U. Seules les corrections d'`audit_drawing` (`fixErrors`)
   peuvent ne pas s'annuler : lancez-le sur un dessin enregistré.
+
+Mise à plat et nettoyage de dessin :
+
+| Outil | Rôle |
+| --- | --- |
+| `flatten_entities` | Ramène des objets à une altitude unique (0 par défaut) sans changer leur type, handles et données d'objet conservés : sommets des lignes, polylignes 3D, splines, faces 3D et lignes de repère, déplacement vertical des objets plans parallèles au plan XY, point d'insertion des blocs ; solides, maillages et objets inclinés ignorés et signalés |
+| `clean_drawing` | Nettoyage de dessin de Map 3D, comme MAPCLEAN en mode automatique : doublons, objets courts, longueur nulle, coupe aux croisements, prolongement des dépassements insuffisants, intersection apparente, nœuds proches, pseudo-nœuds, objets pendants, simplification, élagage des polylignes ; tolérance générale ou par action, objets d'ancrage, simulation (`dryRun`) qui compte les erreurs sans rien modifier |
+
+- **Nettoyage** : faites d'abord une simulation (`dryRun`), puis lancez peu d'actions à la fois. Les actions
+  s'enchaînent dans l'ordre donné, sauf `simplify` et `weed` qui passent toujours en premier. Sans filtre, tout l'espace
+  objet est traité (courbes, points, blocs et textes) ; `layers`, `types`, `where`, `handles` ou `selection`
+  restreignent le nettoyage. Map 3D seulement.
+- **Mise à plat** : contrairement à FLATTEN, une polyligne 3D reste une polyligne 3D (à plat) ; le contenu des blocs
+  n'est pas modifié.
 
 Modélisation 3D :
 

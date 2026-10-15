@@ -165,7 +165,46 @@ try {
     $leftExtents = (Entity $leftLeader.leader.handle).extents
     if ($leftExtents.min[0] -lt 370) { Write-Host "  OK    repère vers la gauche : texte à gauche du palier (X min $($leftExtents.min[0]))" -ForegroundColor Green } else { Write-Host "  ÉCHEC repère vers la gauche : texte du mauvais côté" -ForegroundColor Red; $script:failures++ }
 
+    Write-Host "Mise à plat"
+    $flat = "MCP_FLAT_$(Get-Date -Format HHmmss)"
+    Call 'create_layer' "{`"name`":`"$flat`"}" -Write | Out-Null
+    $l3 = (Call 'create_line' "{`"start`":[0,1600,5],`"end`":[10,1600,8],`"layer`":`"$flat`"}" -Write).handle
+    $p3 = (Call 'create_3d_polyline' "{`"points`":[[20,1600,1],[30,1600,2],[30,1610,3]],`"layer`":`"$flat`"}" -Write).handle
+    $c3 = (Call 'create_circle' "{`"center`":[50,1600,4],`"radius`":2,`"layer`":`"$flat`"}" -Write).handle
+    Call 'create_box' "{`"corner`":[70,1600,0],`"length`":5,`"width`":5,`"height`":5,`"layer`":`"$flat`"}" -Write | Out-Null
+    $flattened = Call 'flatten_entities' "{`"layers`":[`"$flat`"]}" -Write
+    CheckText 'mise à plat : objets mis à Z 0' $flattened.flattened 3
+    CheckText 'mise à plat : solide ignoré' $flattened.skipped[0].count 1
+    $line = Entity $l3
+    CheckText 'ligne à plat : Z des extrémités' "$($line.start[2]),$($line.end[2])" '0,0'
+    CheckText 'polyligne 3D à plat : Z des sommets' (((Entity $p3).points | ForEach-Object { $_[2] }) -join ',') '0,0,0'
+    CheckText 'cercle à plat : Z du centre' (Entity $c3).center[2] 0
+    CheckText 'mise à plat répétée : rien à faire' (Call 'flatten_entities' "{`"layers`":[`"$flat`"],`"types`":[`"LINE`",`"CIRCLE`"]}" -Write).alreadyFlat 2
+    CheckText 'mise à plat à Z 12' (Call 'flatten_entities' "{`"handles`":[`"$p3`"],`"elevation`":12}" -Write).flattened 1
+    CheckText 'polyligne 3D à Z 12' (((Entity $p3).points | ForEach-Object { $_[2] }) -join ',') '12,12,12'
+
+    Write-Host "Nettoyage de dessin (MAPCLEAN)"
+    $dirty = "MCP_CLEAN_$(Get-Date -Format HHmmss)"
+    Call 'create_layer' "{`"name`":`"$dirty`"}" -Write | Out-Null
+    foreach ($segment in @('[0,1700],[10,1700]', '[0,1700],[10,1700]', '[20,1700],[20.004,1700]', '[30,1695],[40,1705]', '[30,1705],[40,1695]')) {
+        $ends = $segment -split '\],\['
+        Call 'create_line' "{`"start`":$($ends[0])],`"end`":[$($ends[1]),`"layer`":`"$dirty`"}" -Write | Out-Null
+    }
+    function Count-Dirty { (Call 'list_entities' "{`"layers`":[`"$dirty`"],`"limit`":1}").total }
+    $dry = Call 'clean_drawing' "{`"actions`":[`"deleteDuplicates`",`"eraseShort`",`"breakCrossing`"],`"layers`":[`"$dirty`"],`"dryRun`":true}" -Write
+    foreach ($action in 'deleteDuplicates', 'eraseShort', 'breakCrossing') {
+        CheckText "simulation : erreurs de $action" ([int](($dry.groups | Where-Object action -eq $action).errors) -ge 1) 'True'
+    }
+    CheckText 'simulation : dessin inchangé' (Count-Dirty) 5
+    $cleaned = Call 'clean_drawing' "{`"actions`":[`"deleteDuplicates`",`"eraseShort`"],`"layers`":[`"$dirty`"]}" -Write
+    CheckText 'doublon et objet court supprimés' (Count-Dirty) 3
+    Call 'clean_drawing' "{`"actions`":[{`"action`":`"breakCrossing`",`"tolerance`":0.001}],`"layers`":[`"$dirty`"]}" -Write | Out-Null
+    CheckText 'lignes coupées au croisement' (Count-Dirty) 5
+
     Write-Host "Erreurs attendues"
+    Expect-Error 'mise à plat sans objets désignés' 'flatten_entities' '{}'
+    Expect-Error 'action de nettoyage inconnue' 'clean_drawing' '{"actions":["toutBalayer"]}'
+    Expect-Error 'nettoyage sans action' 'clean_drawing' '{"actions":[]}'
     Expect-Error 'raccord sur une seule ligne' 'fillet' "{`"handles`":[`"$f1`"],`"radius`":1}"
     $p1 = Line 0 1400 10 1400
     $p2 = Line 0 1405 10 1405

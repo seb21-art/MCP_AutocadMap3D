@@ -111,6 +111,8 @@ internal sealed class ToolRegistry
             .Add("delete_layers", DrawingAccess.Write, LayerTools.DeleteLayers)
             .Add("purge_drawing", DrawingAccess.Write, MaintenanceTools.PurgeDrawing)
             .Add("audit_drawing", DrawingAccess.Write, MaintenanceTools.AuditDrawing)
+            .Add("flatten_entities", DrawingAccess.Write, CleanupTools.FlattenEntities)
+            .Add("clean_drawing", DrawingAccess.Write, CleanupTools.CleanDrawing)
             .Add("list_layers", DrawingAccess.Read, ReadTools.ListLayers)
             .Add("list_entities", DrawingAccess.Read, ReadTools.ListEntities)
             .Add("get_selection", DrawingAccess.Read, QueryTools.GetSelection)
