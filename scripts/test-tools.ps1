@@ -180,13 +180,34 @@ try {
         Test-Error 'undo au-delà des appels du connecteur' 'undo' "{`"count`":$($undone.remainingConnectorSteps + 1)}" 'invalid_params'
     }
 
-    Write-Host "Système de coordonnées"
+    Write-Host "Unités du dessin"
     $initialCs = (Invoke-Tool 'get_coordinate_system').result
+    Test-Tool 'set_drawing_units (formats)' 'set_drawing_units' '{"lengthFormat":"decimal","lengthPrecision":3,"angleFormat":"dms","anglePrecision":2,"angleBase":90,"clockwise":true}' {
+        param($r) $r.after.lengthPrecision -eq 3 -and $r.after.angleFormat -eq 'dms' -and $r.after.angleBase -eq 90 -and $r.after.clockwise
+    } | Out-Null; $writes++
+    Test-Tool 'get_drawing_info : réglages relus' 'get_drawing_info' '{}' { param($r) $r.unitSettings.anglePrecision -eq 2 -and $r.unitSettings.lengthFormat -eq 'decimal' } | Out-Null
+    Test-Tool 'sans unité' 'set_drawing_units' '{"insertionUnits":"unitless"}' { param($r) $r.after.insertionUnits -eq 'Undefined' } | Out-Null; $writes++
+    Test-Error 'mise à l''échelle depuis « sans unité »' 'set_drawing_units' '{"insertionUnits":"m","scaleContent":true}' 'invalid_params' -IsWrite
+    Test-Tool 'unité d''insertion en mètres' 'set_drawing_units' '{"insertionUnits":"m"}' { param($r) $r.after.insertionUnits -eq 'Meters' } | Out-Null; $writes++
+    if (-not $initialCs.assigned) {
+        $unitLine = Test-Tool 'ligne de 10 m' 'create_line' "{`"start`":[0,0],`"end`":[10,0],`"layer`":`"$testLayer`"}" { param($r) $r.handle }; $writes++
+        Test-Tool 'mètres -> centimètres, objets mis à l''échelle' 'set_drawing_units' '{"insertionUnits":"cm","scaleContent":true}' {
+            param($r) $r.after.insertionUnits -eq 'Centimeters' -and $r.scaled.factor -eq 100 -and $r.scaled.entities -ge 1
+        } | Out-Null; $writes++
+        Test-Tool 'ligne de 1000 cm' 'list_entities' "{`"handles`":[`"$($unitLine.handle)`"],`"includeGeometry`":true}" {
+            param($r) [math]::Abs($r.entities[0].end[0] - 1000) -lt 0.001
+        } | Out-Null
+    }
+    Test-Error 'unité inconnue' 'set_drawing_units' '{"insertionUnits":"coudées"}' 'invalid_params' -IsWrite
+    Test-Error 'format inconnu' 'set_drawing_units' '{"lengthFormat":"romain"}' 'invalid_params' -IsWrite
+
+    Write-Host "Système de coordonnées"
     Test-Tool 'search_coordinate_systems (EPSG 2154)' 'search_coordinate_systems' '{"query":"2154","limit":3}' { param($r) $r.results[0].code -eq 'Lambert93' } | Out-Null
     Test-Tool 'search_coordinate_systems (mots-clés)' 'search_coordinate_systems' '{"query":"RGF93 CC46","limit":3}' { param($r) $r.results[0].code -eq 'RGF93.CC46' } | Out-Null
     Test-Tool 'set_coordinate_system (forcé)' 'set_coordinate_system' '{"code":"RGF93.CC46","force":true}' { param($r) $r.assigned -eq 'RGF93.CC46' } | Out-Null; $writes++
     Test-Tool 'get_coordinate_system' 'get_coordinate_system' '{}' { param($r) $r.system.code -eq 'RGF93.CC46' } | Out-Null
     Test-Error 'système inconnu' 'set_coordinate_system' '{"code":"PAS.UN.CODE"}' 'invalid_params' -IsWrite
+    Test-Error 'mise à l''échelle d''un dessin géoréférencé' 'set_drawing_units' '{"insertionUnits":"km","scaleContent":true}' 'invalid_params' -IsWrite
     # Origines des projections : longitude 3°, latitude 46,5° -> Lambert-93 (700 000 ; 6 600 000) ;
     # longitude 3°, latitude 46° -> CC46 (1 700 000 ; 5 200 000).
     Test-Tool 'convert_coordinates lonlat -> EPSG:2154' 'convert_coordinates' '{"points":[[3,46.5]],"from":"lonlat","to":"EPSG:2154"}' {
@@ -243,6 +264,7 @@ try {
         while ($true) {
             $final = (Invoke-Tool 'get_drawing_info').result
             $restored = $final.modelSpaceEntityCount -eq $info.modelSpaceEntityCount -and $final.layerCount -eq $info.layerCount
+            $restored = $restored -and (($final.unitSettings | ConvertTo-Json -Compress) -eq ($info.unitSettings | ConvertTo-Json -Compress))
             $finalCs = (Invoke-Tool 'get_coordinate_system').result
             $restored = $restored -and ($finalCs.assigned -eq $initialCs.assigned) -and ($finalCs.system.code -eq $initialCs.system.code)
             $restored = $restored -and ((Invoke-Tool 'list_linetypes').result.loaded.Count -eq $initialLinetypes)
@@ -255,7 +277,7 @@ try {
         if ($restored -and $extra -gt 0) {
             Write-Host "  AVERT dessin revenu à son état initial après $extra U supplémentaire(s) : étape(s) d'annulation créée(s) hors du connecteur (par exemple COVANEWS de Covadis au démarrage)" -ForegroundColor Yellow
         } elseif ($restored) {
-            Write-Host "  OK    dessin revenu à son état initial ($($final.modelSpaceEntityCount) objets, $($final.layerCount) calques)" -ForegroundColor Green
+            Write-Host "  OK    dessin revenu à son état initial ($($final.modelSpaceEntityCount) objets, $($final.layerCount) calques, unités $($final.units))" -ForegroundColor Green
         } else {
             Write-Host "  ÉCHEC annulation : $($final.modelSpaceEntityCount) objets / $($final.layerCount) calques, attendu $($info.modelSpaceEntityCount) / $($info.layerCount)" -ForegroundColor Red
             $failures++

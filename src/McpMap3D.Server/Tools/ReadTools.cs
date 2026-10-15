@@ -8,11 +8,39 @@ public sealed class ReadTools(PluginClient plugin)
 {
     [McpServerTool(Name = "get_drawing_info", Title = "Informations sur le dessin ouvert",
         ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
-    [Description("Décrit le dessin actif d'AutoCAD Map 3D : fichier, unités, étendue, calque courant, espace courant, " +
+    [Description("Décrit le dessin actif d'AutoCAD Map 3D : fichier, unités (unité d'insertion, formats et précisions), étendue, calque courant, espace courant, " +
                  "nombre de calques et d'objets de l'espace objet, présentations, et pour Map 3D le système de " +
                  "coordonnées et le nombre de tables de données d'objet.")]
     public Task<string> GetDrawingInfo(CancellationToken cancellationToken) =>
         plugin.CallForTextAsync("get_drawing_info", cancellationToken: cancellationToken);
+
+    [McpServerTool(Name = "set_drawing_units", Title = "Changer les unités du dessin",
+        ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false)]
+    [Description("Change les unités du dessin, comme la commande UNITES : unité d'insertion (INSUNITS), format et " +
+                 "précision des longueurs et des angles, direction de l'angle 0 et sens des angles, système métrique " +
+                 "ou impérial. Seuls les réglages fournis changent. Par défaut les objets gardent leurs coordonnées : " +
+                 "avec scaleContent=true, ceux de l'espace objet sont mis à l'échelle de l'ancienne unité vers la " +
+                 "nouvelle (de mm en m : facteur 0,001), calques verrouillés compris, et les fenêtres de présentation " +
+                 "gardent leur cadrage. Refusé sur un dessin géoréférencé (système de coordonnées Map 3D) sauf force. " +
+                 "Renvoie les réglages avant et après ; get_drawing_info les donne aussi.")]
+    public Task<string> SetDrawingUnits(
+        [Description("Unité d'insertion : millimeters (mm), centimeters (cm), decimeters (dm), meters (m), kilometers (km), " +
+                     "inches (in), feet (ft), yards, miles, USSurveyFeet, unitless…")] string? insertionUnits = null,
+        [Description("Format des longueurs : decimal, scientific, engineering, architectural, fractional.")] string? lengthFormat = null,
+        [Description("Nombre de décimales des longueurs, de 0 à 8.")] int? lengthPrecision = null,
+        [Description("Format des angles : degrees, dms (degrés/minutes/secondes), grads, radians, surveyor.")] string? angleFormat = null,
+        [Description("Nombre de décimales des angles, de 0 à 8.")] int? anglePrecision = null,
+        [Description("Direction de l'angle 0, en degrés depuis l'axe X (0 : est, 90 : nord).")] double? angleBase = null,
+        [Description("Angles comptés dans le sens horaire (false : trigonométrique, par défaut d'AutoCAD).")] bool? clockwise = null,
+        [Description("Système de mesure : metric ou imperial (fichiers de motifs de hachures et de types de ligne).")] string? measurement = null,
+        [Description("Mettre à l'échelle les objets de l'espace objet pour garder leur taille réelle quand l'unité d'insertion change.")] bool scaleContent = false,
+        [Description("Point de base de la mise à l'échelle [x, y, z] ; origine si omis.")] double[]? basePoint = null,
+        [Description("Mettre à l'échelle même un dessin géoréférencé, seulement si l'utilisateur le demande.")] bool force = false,
+        CancellationToken cancellationToken = default) =>
+        plugin.CallForTextAsync("set_drawing_units",
+            new { insertionUnits, lengthFormat, lengthPrecision, angleFormat, anglePrecision, angleBase, clockwise, measurement,
+                  scaleContent, basePoint, force },
+            cancellationToken: cancellationToken);
 
     [McpServerTool(Name = "list_layers", Title = "Lister les calques",
         ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]

@@ -28,6 +28,19 @@ internal static class CoordinateSystemTools
         return GetCoordinateSystemMap3D(context);
     }
 
+    /// <summary>Système de coordonnées attribué au dessin et son unité ; null sans système ou sans Map 3D.</summary>
+    public static (string Code, string Units, double MetersPerUnit)? DrawingSystemUnits(Database database) =>
+        MapInfo.IsAvailable ? DrawingSystemUnitsMap3D(database) : null;
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (string Code, string Units, double MetersPerUnit)? DrawingSystemUnitsMap3D(Database database)
+    {
+        var code = AcMapCoordsysCore.GetCoordinateSystem(database);
+        if (string.IsNullOrEmpty(code) || TryCreate(new MgCoordinateSystemFactory(), code) is not { } system)
+            return null;
+        return (code, system.GetUnits(), system.GetUnitScale());
+    }
+
     private static object GetCoordinateSystemClassic(ToolContext context)
     {
         var extents = DrawingExtents(context.Database);

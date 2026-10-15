@@ -101,6 +101,7 @@ internal sealed class ToolRegistry
             .Add("save_drawing", DrawingAccess.None, DrawingTools.SaveDrawing)
             .Add("close_drawing", DrawingAccess.None, DrawingTools.CloseDrawing)
             .Add("get_drawing_info", DrawingAccess.Read, ReadTools.GetDrawingInfo)
+            .Add("set_drawing_units", DrawingAccess.Write, UnitsTools.SetDrawingUnits)
             .Add("list_layers", DrawingAccess.Read, ReadTools.ListLayers)
             .Add("list_entities", DrawingAccess.Read, ReadTools.ListEntities)
             .Add("get_selection", DrawingAccess.Read, QueryTools.GetSelection)

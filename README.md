@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (181 tools: 2D
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (182 tools: 2D
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.32.0, 181 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.33.0, 182 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 181 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 182 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -214,7 +214,8 @@ par le client (Claude Desktop : journaux `mcp-server-map3d.log`).
 | `open_drawing` | Ouvre un .dwg, .dxf ou .dwt (lecture seule possible), ou active un dessin déjà ouvert par son nom ou son chemin |
 | `save_drawing` | Enregistre un dessin, sous son nom ou sous un autre (le dessin prend ce nom) ; n'écrase un fichier qu'avec `overwrite` |
 | `close_drawing` | Ferme un dessin ; refuse s'il a des modifications non enregistrées, sauf `save` ou `discardChanges` |
-| `get_drawing_info` | Fichier, unités, étendue, calque et espace courants, présentations, infos Map 3D |
+| `get_drawing_info` | Fichier, unités (unité d'insertion, formats et précisions des longueurs et des angles), étendue, calque et espace courants, présentations, infos Map 3D |
+| `set_drawing_units` | Change les unités comme la commande UNITES : unité d'insertion, format et précision des longueurs et des angles, angle 0 et sens, métrique ou impérial ; avec `scaleContent`, met les objets de l'espace objet à l'échelle de la nouvelle unité (calques verrouillés compris) et garde le cadrage des fenêtres de présentation ; refusé sur un dessin géoréférencé sauf `force` |
 | `list_layers` | Calques, avec couleur, type de ligne, épaisseur, états et description |
 | `list_entities` | Objets filtrés par calque, type, espace et conditions `where` (voir ci-dessous), ou pris dans la sélection courante, paginés, avec handle et résumé par type (contenu des cellules pour un tableau, renflements d'une polyligne avec la géométrie) |
 | `get_selection` | Objets que l'utilisateur a sélectionnés dans AutoCAD, décrits comme par `list_entities` ; une note dit quoi faire si rien n'est sélectionné (ou si PICKFIRST vaut 0) |
