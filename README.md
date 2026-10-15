@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (182 tools: 2D
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (191 tools: 2D
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.33.0, 182 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.33.0, 191 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 182 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 191 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -214,7 +214,7 @@ par le client (Claude Desktop : journaux `mcp-server-map3d.log`).
 | `open_drawing` | Ouvre un .dwg, .dxf ou .dwt (lecture seule possible), ou active un dessin déjà ouvert par son nom ou son chemin |
 | `save_drawing` | Enregistre un dessin, sous son nom ou sous un autre (le dessin prend ce nom) ; n'écrase un fichier qu'avec `overwrite` |
 | `close_drawing` | Ferme un dessin ; refuse s'il a des modifications non enregistrées, sauf `save` ou `discardChanges` |
-| `get_drawing_info` | Fichier, unités (unité d'insertion, formats et précisions des longueurs et des angles), étendue, calque et espace courants, présentations, infos Map 3D |
+| `get_drawing_info` | Fichier, unités (unité d'insertion, formats et précisions des longueurs et des angles), réglages (échelles des types de ligne, échelle d'annotation, style des points), propriétés du dessin, étendue, calque et espace courants, présentations, infos Map 3D |
 | `set_drawing_units` | Change les unités comme la commande UNITES : unité d'insertion, format et précision des longueurs et des angles, angle 0 et sens, métrique ou impérial ; avec `scaleContent`, met les objets de l'espace objet à l'échelle de la nouvelle unité (calques verrouillés compris) et garde le cadrage des fenêtres de présentation ; refusé sur un dessin géoréférencé sauf `force` |
 | `list_layers` | Calques, avec couleur, type de ligne, épaisseur, états et description |
 | `list_entities` | Objets filtrés par calque, type, espace et conditions `where` (voir ci-dessous), ou pris dans la sélection courante, paginés, avec handle et résumé par type (contenu des cellules pour un tableau, renflements d'une polyligne avec la géométrie) |
@@ -247,6 +247,26 @@ par le client (Claude Desktop : journaux `mcp-server-map3d.log`).
   `summarize_entities` avec `groupBy: ["od:CONDUITES.DIAMETRE"]`. Les groupes sont triés par valeur, 500 au plus.
 - **Sélection** : `get_selection`, et `selection: true` dans `list_entities` et `summarize_entities`, lisent la
   sélection faite dans AutoCAD hors commande (variable PICKFIRST à 1, valeur par défaut).
+
+Réglages, calques et entretien du dessin :
+
+| Outil | Rôle |
+| --- | --- |
+| `set_linetype_scale` | Échelle globale des types de ligne (LTSCALE), échelle des nouveaux objets (CELTSCALE), mise à l'échelle dans les fenêtres de présentation (PSLTSCALE) et selon l'échelle d'annotation (MSLTSCALE) |
+| `list_annotation_scales` | Échelles d'annotation du dessin, avec leur ratio réel compte tenu de l'unité du dessin, et l'échelle courante |
+| `set_annotation_scale` | Rend courante une échelle d'annotation (CANNOSCALE), par son nom ou son ratio (`"1:500"`) ; une échelle absente est créée |
+| `set_point_style` | Style d'affichage des points (PDMODE, PDSIZE) : forme, cercle, carré, taille absolue ou relative à l'écran |
+| `set_drawing_properties` | Propriétés du dessin (PROPDESSIN) : titre, sujet, auteur, mots-clés, commentaires, révision, base des liens, propriétés personnalisées |
+| `rename_layer` | Renomme un calque (sauf 0, Defpoints et calques de références externes) |
+| `delete_layers` | Supprime des calques vides, ou les fusionne dans un autre calque (`mergeInto`, comme FUSIONCALQUES : objets des espaces, des blocs et attributs déplacés, calques verrouillés compris) |
+| `purge_drawing` | Purge les éléments nommés inutilisés (calques, blocs, types de ligne, styles de texte, de cote, de tableau, de ligne de repère multiple, de multiligne), en plusieurs passes ; `dryRun` liste sans supprimer |
+| `audit_drawing` | Contrôle d'intégrité comme AUDIT, avec son rapport (fichier `.adt` à côté du dessin) ; `fixErrors` corrige les erreurs |
+
+- **Échelles d'annotation** : une échelle vaut « unités papier = unités du dessin », le papier étant en mm (ou en
+  pouces en impérial). Dans un dessin en mètres, l'échelle « 1:1 » des gabarits vaut donc 1 mm = 1 m, soit un ratio réel
+  de 1:1000 : `list_annotation_scales` l'indique dans `ratio`.
+- **Annulation** : chacun de ces outils est une étape de U. Seules les corrections d'`audit_drawing` (`fixErrors`)
+  peuvent ne pas s'annuler : lancez-le sur un dessin enregistré.
 
 Modélisation 3D :
 
