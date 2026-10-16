@@ -177,6 +177,37 @@ try {
         if (Test-Path $file) { Remove-Item $file -Force }
     }
 
+    if (@($providers.providers | Where-Object { $_.name -eq 'Autodesk.Raster' }).Count -gt 0) {
+        Write-Host "MNT raster (ASC) : surface ombrée et teintée"
+        # Plan incliné de 40 x 30 mailles de 10 m : altitudes de 100 à 100 + 39 x 0,5 + 29 = 148,5 m.
+        $file = Join-Path (Join-Path $PSScriptRoot '..\artifacts\test') "mcp-mnt-$(Get-Random).asc"
+        $rows = foreach ($j in 29..0) { ((0..39 | ForEach-Object { (100 + $_ * 0.5 + $j).ToString([cultureinfo]::InvariantCulture) }) -join ' ') }
+        [IO.File]::WriteAllLines($file, @('ncols 40', 'nrows 30', 'xllcorner 850000', 'yllcorner 6550000', 'cellsize 10', 'NODATA_value -9999') + $rows)
+        $escaped = (Resolve-Path $file).Path.Replace('\', '\\')
+        $mnt = Call 'connect_fdo' "{`"provider`":`"Autodesk.Raster`",`"connectionString`":`"DefaultRasterFileLocation=$escaped`",`"name`":`"McpMnt`"}"
+        if ($null -ne $mnt) {
+            $surface = Call 'add_fdo_layer' "{`"resource`":`"McpMnt`",`"className`":`"$($mnt.classes[0])`",`"name`":`"McpMnt`"}"
+            if ($null -ne $surface) {
+                Check 'MNT en calque raster' "$($surface.layer.vector)" 'False'
+                Check 'MNT reconnu comme surface : 8 plages' $surface.surface.classes 8
+                Check 'altitudes lues dans le fichier ASC' "$($surface.surface.minZ)-$($surface.surface.maxZ)" '100-148.5'
+                $xml = ((Call '_fdo_diagnostic').layers | Where-Object name -eq 'McpMnt').layerDefinitionXml
+                Check 'définition de surface avec ombrage' ($xml -match '<SurfaceStyle>' -and $xml -match '<HillShade>') 'True'
+                Check 'règles de couleur sur Height(1) (8 plages + défaut)' ([regex]::Matches($xml, '<ColorRule>').Count) 9
+            }
+            $plain = Call 'add_fdo_layer' "{`"resource`":`"McpMnt`",`"className`":`"$($mnt.classes[0])`",`"name`":`"McpMnt2`",`"colorClasses`":3,`"elevationRange`":[0,300],`"hillshade`":false}"
+            if ($null -ne $plain) {
+                Check 'teinte imposée : 3 plages de 0 à 300' "$($plain.surface.classes):$($plain.surface.minZ)-$($plain.surface.maxZ):$($plain.surface.rangeSource)" '3:0-300:elevationRange'
+                $xml2 = ((Call '_fdo_diagnostic').layers | Where-Object name -eq 'McpMnt2').layerDefinitionXml
+                Check 'sans ombrage sur demande' ($xml2 -match '<HillShade>') 'False'
+                Call 'remove_fdo_layer' '{"name":"McpMnt2"}' | Out-Null
+            }
+            $gone = Call 'remove_fdo_layer' '{"name":"McpMnt","disconnect":true}'
+            if ($null -ne $gone) { Check 'source du MNT retirée avec le calque' $gone.disconnected $mnt.resource }
+        }
+        if (Test-Path $file) { Remove-Item $file -Force }
+    }
+
     $wms = @($providers.providers | Where-Object { $_.name -eq 'OSGeo.WMS' })
     $cs = (Call 'get_coordinate_system').assigned
     if ($wms.Count -gt 0 -and $cs) {

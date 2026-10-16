@@ -55,7 +55,10 @@ public sealed class FdoTools(PluginClient plugin)
     [Description("Ajoute à la carte courante un calque affichant une classe d'une source déjà connectée. " +
                  "className est Schéma:Classe, tel que renvoyé par describe_fdo. Une classe d'image (WMS, raster) devient " +
                  "un calque raster ; pour un WMS, une source dédiée à la couche est créée comme le fait MAPCONNECT " +
-                 "(dedicatedSource dans la réponse), avec l'image en PNG transparent reprojetée par Map 3D. Le calque FDO n'est " +
+                 "(dedicatedSource dans la réponse), avec l'image en PNG transparent reprojetée par Map 3D. Un MNT (raster " +
+                 "d'altitudes : ASC, DEM, GeoTIFF d'altitudes, par le fournisseur Autodesk.Raster) devient une surface ombrée, " +
+                 "teintée selon l'altitude en colorClasses plages : altitudes extrêmes lues dans les fichiers ASC, ou données " +
+                 "par elevationRange (sinon une seule couleur ombrée). Le calque FDO n'est " +
                  "pas un calque AutoCAD et n'est pas annulé par U : retirez-le avec remove_fdo_layer (disconnect retire aussi " +
                  "sa source dédiée).")]
     public Task<string> AddLayer(
@@ -63,9 +66,12 @@ public sealed class FdoTools(PluginClient plugin)
         [Description("Classe à afficher, Schéma:Classe.")] string className,
         [Description("Nom du calque dans la carte. Nom de la classe si omis.")] string? name = null,
         [Description("Propriété géométrique. Celle par défaut de la classe si omise.")] string? geometry = null,
+        [Description("MNT : nombre de plages de couleur de la teinte par altitude, 1 à 20 (8 par défaut).")] int? colorClasses = null,
+        [Description("MNT : altitudes [min, max] de la teinte, si elles ne peuvent pas être lues (formats autres que ASC).")] double[]? elevationRange = null,
+        [Description("MNT : ombrage du relief (vrai par défaut).")] bool? hillshade = null,
         CancellationToken cancellationToken = default) =>
         plugin.CallForTextAsync("add_fdo_layer",
-            new { resource, className, name, geometry }, cancellationToken: cancellationToken);
+            new { resource, className, name, geometry, colorClasses, elevationRange, hillshade }, cancellationToken: cancellationToken);
 
     [McpServerTool(Name = "list_fdo_layers", Title = "Lister les calques FDO",
         ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false)]
