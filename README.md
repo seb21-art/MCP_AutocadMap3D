@@ -24,7 +24,7 @@ Exemples de demandes à l'assistant :
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.34.0, 193 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.34.1, 193 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -622,7 +622,7 @@ Connexions FDO (carte courante, plateforme géospatiale).
 | `list_fdo_connections` | Sources créées par le connecteur (`Library://MCP_…`), et celles déjà affichées ; `includeLibrary` ajoute tout le dépôt Library |
 | `connect_fdo` | Teste une chaîne `Clé=valeur` et enregistre la source à la racine du dépôt (`Library://MCP_nom`), où `MAPCONNECT` la montre ; `createFile` crée un SDF vide, dans le système du dessin, avec sa classe (`className`), ses champs (`fields`) et son type de géométrie (`geometry`) ; un nom déjà pris est refusé, sauf `replace` (jamais si un calque l'affiche) |
 | `describe_fdo` | Schémas, classes, propriétés et contextes spatiaux |
-| `add_fdo_layer` | Affiche une classe (`Schéma:Classe`) comme calque de la carte : vectoriel, ou raster pour une image ou un WMS |
+| `add_fdo_layer` | Affiche une classe (`Schéma:Classe`) comme calque de la carte : vectoriel, ou raster pour une image ou un WMS ; un MNT (ASC, DEM, GeoTIFF d'altitudes, fournisseur `Autodesk.Raster`) devient une surface ombrée et teintée selon l'altitude (`colorClasses`, `elevationRange`, `hillshade`), comme avec MAPCONNECT |
 | `list_fdo_layers` | Calques FDO : visibilité, source, classe, géométrie |
 | `query_fdo` | Lit des objets (filtre FDO, 200 au plus) sans les modifier |
 | `set_fdo_layer` | Visibilité, nom, cadrage ; un calque raster (WMS : Map 3D échoue ou cadre le monde entier) ou vide est cadré sur l'étendue déclarée par sa source, limitée au domaine du système du dessin, et un raster sans étendue exploitable sur ce domaine, la France pour un WMS national en Lambert-93 (`zoom.method` : `layer`, `spatialContext`, `coordinateSystemDomain` ou `none`) |

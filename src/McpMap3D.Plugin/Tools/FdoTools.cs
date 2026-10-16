@@ -187,10 +187,26 @@ internal static class FdoTools
             // WMS : comme MAPCONNECT, une source dédiée à cette couche, avec son document de configuration. Sans lui,
             // Map 3D accepte le calque mais n'affiche aucune image.
             MgResourceIdentifier? wmsSource = null;
-            if (isRaster && IsWms(resource))
+            var wms = isRaster && IsWms(resource);
+            if (wms)
                 wmsSource = CreateWmsLayerSource(resources, resource, baseName, className);
 
-            Save(resources, layerId, isRaster
+            // MNT (raster d'altitudes) : surface ombrée et teintée selon l'altitude, comme MAPCONNECT, et non l'image
+            // de la bande 1, qui donnerait un aplat uniforme.
+            var surface = isRaster && !wms && FdoSurfaces.IsElevation(resource, $"{schema}:{className}", raster!);
+            FdoSurfaces.Range? elevation = null;
+            var classes = reader.GetInt("colorClasses", 8, 1, 20);
+            var hillshade = reader.GetBool("hillshade", true);
+            if (surface)
+            {
+                elevation = reader.GetNumbers("elevationRange", 2) is { } bounds
+                    ? new FdoSurfaces.Range(Math.Min(bounds[0], bounds[1]), Math.Max(bounds[0], bounds[1]), "elevationRange")
+                    : FdoSurfaces.AscRange(resource, className);
+            }
+
+            Save(resources, layerId, surface
+                ? FdoSurfaces.LayerXml(resource.ToString(), $"{schema}:{className}", elevation, classes, hillshade)
+                : isRaster
                 ? GridLayerXml((wmsSource ?? resource).ToString(), wmsSource is null ? $"{schema}:{className}" : $"{WmsSchema}:{className}")
                 : LayerXml(resource.ToString(), $"{schema}:{className}", geometry, definition));
             AcMapLayer layer;
@@ -227,6 +243,17 @@ internal static class FdoTools
                 Layer = DescribeLayer(layer),
                 LayerDefinition = layerId.ToString(),
                 DedicatedSource = wmsSource?.ToString(),
+                Surface = surface
+                    ? new
+                    {
+                        Classes = elevation is null ? 1 : classes,
+                        MinZ = elevation is null ? (double?)null : Format.Number(elevation.Min),
+                        MaxZ = elevation is null ? (double?)null : Format.Number(elevation.Max),
+                        RangeSource = elevation?.Source,
+                        Hillshade = hillshade,
+                        Note = elevation is null ? "Altitudes extrêmes inconnues (format autre que ASC) : une seule couleur ombrée ; elevationRange donne la teinte par altitude." : null,
+                    }
+                    : null,
                 Warning = warning,
             };
         });
