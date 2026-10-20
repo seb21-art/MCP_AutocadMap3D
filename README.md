@@ -20,11 +20,11 @@ Exemples de demandes à l'assistant :
 - « Crée une présentation A3 avec une fenêtre au 1:500 sur les parcelles, et exporte-la en PDF. »
 
 > *English summary: MCP server and AutoCAD plug-in that let an AI assistant (Claude, Cursor, Antigravity, Hermes or
-> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (193 tools: 2D
+> any MCP client) read and edit the drawing open in AutoCAD, AutoCAD Map 3D or Civil 3D 2026/2027 (199 tools: 2D
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.34.1, 193 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.35.0, 199 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -144,7 +144,7 @@ documentation.
   Windows courant et à sa session. Le client doit donc tourner sur le poste d'AutoCAD, sous le même compte. Un client
   lancé dans WSL (Hermes Agent, par exemple) peut lancer l'exécutable Windows par son chemin
   `/mnt/c/Users/<vous>/.mcpmap3d/server/McpMap3D.Server.exe` : l'exécutable tourne alors côté Windows (non testé).
-- **Nombre d'outils** : le serveur expose 193 outils. Si le client en limite le nombre, désactivez-y les familles
+- **Nombre d'outils** : le serveur expose 199 outils. Si le client en limite le nombre, désactivez-y les familles
   inutiles.
 - **Délai d'attente** : un import de cadastre ou un export PDF peut durer plus d'une minute. Si le client coupe les
   appels trop tôt, allongez son délai d'attente.
@@ -179,6 +179,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test-scene.ps1       # matéria
 powershell -ExecutionPolicy Bypass -File scripts\test-fdo.ps1         # connexions FDO : fournisseurs, SDF (écriture, style), WMS, refus, puis déconnexion
 powershell -ExecutionPolicy Bypass -File scripts\test-network.ps1     # points topographiques et topologie de réseau, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-terrain.ps1     # MNT, courbes, analyses, images, GeoJSON/KML (Internet pour le MNT de l'IGN), puis annulation
+powershell -ExecutionPolicy Bypass -File scripts\test-dxf.ps1         # données DXF brutes (LINE, INSERT avec XDATA, dictionnaire nommé), classes, modules, export DXF, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-gis.ps1         # fichiers SIG : export SHP/MIF/TAB/GML/SDF, réimport, attributs, système, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-batch.ps1       # outil de lot run_batch par le serveur MCP (stdio), puis annulation
 ```
@@ -281,6 +282,23 @@ Mise à plat et nettoyage de dessin :
   restreignent le nettoyage. Map 3D seulement.
 - **Mise à plat** : contrairement à FLATTEN, une polyligne 3D reste une polyligne 3D (à plat) ; le contenu des blocs
   n'est pas modifié.
+
+Analyse bas niveau (objets personnalisés, Covadis…) :
+
+| Outil | Rôle |
+| --- | --- |
+| `get_entity_dxf` | Données DXF brutes d'entités ou d'objets non graphiques, comme `(entget (handent h) '("*"))`, par `acdbEntGet` : le `dxfOutFields` d'un objet personnalisé est réellement appelé. Type DXF, classe C++ (et classe d'origine d'un proxy), paires ordonnées `{ code, type, valeur }` : doubles en pleine précision, points `[x, y, z]`, noms d'entité en handles, binaire en hexadécimal tronqué (`maxBinaryBytes`) ; données étendues par application (`includeXdata`), dictionnaire d'extension, références suivies sur 2 niveaux (`followReferences`, codes 330 à 369 et 1005) |
+| `set_entity_dxf` | Remplace des valeurs DXF existantes (n-ième occurrence d'un code), comme `entmod` puis `entupd`, en une étape de U ; simulation par défaut (`dryRun`), relecture complète après écriture. **Désactivé par défaut** (voir ci-dessous) |
+| `export_dxf` | Copie DXF ASCII du dessin actif (`Database.DxfOut`), R2018 à R2000, précision 0 à 16 ; le dessin garde son nom, son fichier et son état « modifié » ; AutoCAD en fait une étape d'annulation vide, comptée parmi celles du connecteur |
+| `list_classes` | Classes enregistrées dans AutoCAD : nom C++, nom DXF, application, parent, drapeaux de proxy, nombre d'objets dans le dessin (proxys comptés pour leur classe d'origine) ; filtre par préfixe (`COVA`, `Cv`) |
+| `list_loaded_modules` | Modules ARX/DBX (DynamicLinker) et assemblages .NET chargés : chemin, version de fichier, éditeur, produit |
+| `list_dictionary` | Entrées d'un dictionnaire (clé, handle, type DXF, classe) : dictionnaire nommé par chemin de clés (`COVADIS/…`), ou dictionnaire désigné par handle (ou dictionnaire d'extension d'un objet) |
+
+- **Activer `set_entity_dxf`** : créez `%USERPROFILE%\.mcpmap3d\settings.json` avec `{"enableSetEntityDxf": true}`
+  (relu à chaque appel), ou lancez AutoCAD avec la variable d'environnement `MCPMAP3D_ENABLE_SET_ENTITY_DXF=1`.
+  Les codes `-1`, `0`, `5`, `100`, `102`, `105` et `1001` ne se modifient pas ; un objet sur un calque verrouillé est
+  refusé. Un objet personnalisé peut refuser ou corriger une valeur incohérente : travaillez sur des copies.
+- **Pas d'exécution de commandes ni de LISP** : le connecteur n'en propose volontairement aucune.
 
 Modélisation 3D :
 
@@ -783,6 +801,7 @@ Servies par le pipe mais volontairement **non exposées comme outils MCP**, elle
 | `_create_od_table` | Crée une table de données d'objet si elle manque (`name`, `description`, `fields`), sans erreur si elle existe |
 | `_convert_3d_model` | Conversion d'un fichier STEP ou IGES en DWG temporaire par `acTranslators.exe`, hors du thread principal (`filePath`, `timeoutSeconds`) ; premier temps de `import_3d_model` |
 | `_insert_3d_model` | Insertion d'un DWG converti en bloc (`dwgPath`, `sourceFile`, `position`, `scale`, `blockName`, `explode`, `layer`, `color`, `deleteDwg`) ; second temps de `import_3d_model` |
+| `_dxf_test_fixture` | Données d'essai de `test-dxf.ps1` en une étape de U : données étendues `MCP_TEST` sur l'objet `handle`, dictionnaire nommé `MCP_TEST_DICT` (Xrecord `DATA` avec un binaire, sous-dictionnaire `SUB`) |
 | `_fdo_diagnostic` | Calques FDO de la carte avec leur type, XML de leur définition et de leur source ; données nommées d'une source (`source`, `dataNames`) ; configuration par défaut d'un fournisseur (`provider`, `connectionString`) |
 
 ## Sécurité et données
