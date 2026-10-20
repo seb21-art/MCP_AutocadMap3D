@@ -221,7 +221,7 @@ internal static class DrawingTools
     /// État « modifié » lu par l'interface COM du document (propriété Saved), valable pour tout dessin ouvert, alors
     /// que la variable DBMOD ne se lit que sur le dessin actif.
     /// </summary>
-    private static bool IsModified(Document doc)
+    internal static bool IsModified(Document doc)
     {
         try
         {
@@ -291,7 +291,7 @@ internal static class DrawingTools
     }
 
     /// <summary>Chemin complet ; un chemin relatif part du dossier du dessin actif, sinon du dossier Documents.</summary>
-    private static string FullPath(string requested)
+    internal static string FullPath(string requested)
     {
         var active = AcApp.DocumentManager.MdiActiveDocument;
         var folder = active is not null && SavedPath(active) is string saved

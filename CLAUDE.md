@@ -31,7 +31,7 @@ Code 100 % original : ne jamais décompiler, copier ou réutiliser le code d'un 
 - Dossier `MCPMap3D.bundle` contenant un `PackageContents.xml` avec un bloc `Components` par version : `Contents/2026/` (`SeriesMin="R25.1" SeriesMax="R25.1"`) et `Contents/2027/` (`SeriesMin="R26.0" SeriesMax="R26.0"`), `Platform="Map|Civil3D|AutoCAD"` et `LoadOnAutoCADStartup="True"`.
 - Script PowerShell d'installation vers `%APPDATA%\Autodesk\ApplicationPlugins` (pas de droits administrateur), qui compile une DLL pour chaque version d'AutoCAD installée.
 
-## Outils (193)
+## Outils (199)
 Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Server/Tools/*.cs` (`[McpServerTool]`), et enregistré côté plug-in dans `src/McpMap3D.Plugin/Tools/ToolRegistry.cs` avec son accès au dessin (`None`, `Read`, `Write`, `Document`, `Background` hors du thread principal). Le README décrit chaque outil et ses limites. Seule exception : `run_batch`, propre au serveur (`Tools/BatchTools.cs`), qui appelle les autres outils par le SDK MCP.
 - Système : `ping`, `run_batch` (lot d'appels d'outils, 50 au plus), `undo` (derniers appels du connecteur seulement, sauf `force`)
 - Dessins : `list_drawings`, `new_drawing`, `open_drawing`, `save_drawing`, `close_drawing` (contexte application, hors annulation U)
@@ -39,6 +39,7 @@ Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Serv
 - Édition : `create_layer`, `create_line`, `create_polyline`, `create_text`, `move_entities`, `change_layer`, `set_entity_properties`, `erase_entities`, `set_drawing_units` (unités, mise à l'échelle des objets en option)
 - Réglages, calques et entretien : `set_linetype_scale`, `list_annotation_scales`, `set_annotation_scale`, `set_point_style`, `set_drawing_properties`, `rename_layer`, `delete_layers` (fusion avec `mergeInto`), `purge_drawing`, `audit_drawing`
 - Mise à plat et nettoyage : `flatten_entities` (altitude unique, type et handles conservés), `clean_drawing` (MAPCLEAN : `Topology.TopologyClean` de Map 3D, actions numérotées, `dryRun`)
+- Analyse bas niveau : `get_entity_dxf` (`acdbEntGet`/`acdbEntGetX` d'accore.dll par P/Invoke, `acdbGetAdsName` chargé depuis `acdb<version>.dll`), `set_entity_dxf` (`acdbEntMod` + `acdbEntUpd`, désactivé sauf `settings.json` ou `MCPMAP3D_ENABLE_SET_ENTITY_DXF=1`, `dryRun` par défaut), `export_dxf`, `list_classes`, `list_loaded_modules`, `list_dictionary`
 - Dessin 2D : `create_circle`, `create_arc`, `create_ellipse`, `create_spline`, `create_rectangle`, `create_polygon`, `create_point`, `create_revision_cloud`, `create_wipeout`, `create_boundary`, `create_mtext`, `create_table`, `list_text_styles`, `set_text_style`, `create_hatch`, `create_dimension`, `list_blocks`, `create_block`, `insert_block`, `copy_entities`, `mirror_entities`, `scale_entities`, `offset_entities`, `edit_text`
 - Édition avancée : `array_rectangular`, `array_polar`, `array_path`, `trim_entities`, `extend_entities`, `fillet`, `chamfer`, `explode_entities`, `create_leader`, `join_entities`, `break_entities`, `edit_polyline`, `stretch_entities`, `set_draw_order`
 - Mesures : `get_intersections`, `measure_curve` (sans modification du dessin)
@@ -62,7 +63,7 @@ Chaque outil existe deux fois : déclaré côté serveur dans `src/McpMap3D.Serv
 ## Construire et tester
 - `scripts\install.ps1` construit et installe le plug-in (AutoCAD fermé) et le serveur ; `scripts\register.ps1` l'enregistre dans Claude Code et Claude Desktop.
 - Tests unitaires : `dotnet test tests\McpMap3D.Tests` (projection Lambert-93, triangulation de Delaunay du maillage de terrain, calage du soleil).
-- Tests de bout en bout, AutoCAD lancé avec une copie de dessin ouverte : `scripts\test-*.ps1` (`test-tools`, `test-editing`, `test-drafting`, `test-dimensions`, `test-modeling`, `test-layouts`, `test-plot`, `test-drawings`, `test-xrefs`, `test-scene`, `test-fdo`, `test-network`, `test-terrain`, `test-gis`, `test-batch`, `test-cadastre`, `test-mcp`, `test-pipe`, `smoke-test`). Ceux qui modifient le dessin annulent leurs modifications avec U. Les connexions FDO ne sont pas annulées par U : `test-fdo.ps1` les retire lui-même.
+- Tests de bout en bout, AutoCAD lancé avec une copie de dessin ouverte : `scripts\test-*.ps1` (`test-tools`, `test-editing`, `test-drafting`, `test-dimensions`, `test-modeling`, `test-layouts`, `test-plot`, `test-drawings`, `test-xrefs`, `test-scene`, `test-fdo`, `test-network`, `test-terrain`, `test-dxf`, `test-gis`, `test-batch`, `test-cadastre`, `test-mcp`, `test-pipe`, `smoke-test`). Ceux qui modifient le dessin annulent leurs modifications avec U. Les connexions FDO ne sont pas annulées par U : `test-fdo.ps1` les retire lui-même.
 - Un nouvel outil s'accompagne de ses contrôles dans le script de test de sa famille, de sa ligne dans le README et d'une montée de version.
 
 ## Règles
