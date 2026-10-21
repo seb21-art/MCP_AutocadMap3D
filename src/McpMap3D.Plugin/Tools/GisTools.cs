@@ -365,7 +365,12 @@ internal static class GisTools
         var exporter = HostMapApplicationServices.Application.Exporter;
         Init(format, path, (f, p) => exporter.Init(f, p), () => HostMapApplicationServices.Application.ExportFormats);
         exporter.ExportAll = false;
-        exporter.SetStorageOptions(StorageType.FileOneEntityType, ParseEnum<GeometryType>(geometry), string.Empty);
+        // Le GML (écrit par FME) reste vide en « un type d'objet par fichier » : comme MAPEXPORT, il demande « tous les
+        // types dans un fichier ». La géométrie est déjà choisie par la sélection (ids).
+        if (format == "GML")
+            exporter.SetStorageOptions(StorageType.FileAllEntityTypes, GeometryType.All, string.Empty);
+        else
+            exporter.SetStorageOptions(StorageType.FileOneEntityType, ParseEnum<GeometryType>(geometry), string.Empty);
         exporter.ClosedPolylinesAsPolygons = geometry == "Polygon";
         exporter.SetSelectionSet(new ObjectIdCollection([.. ids]));
 

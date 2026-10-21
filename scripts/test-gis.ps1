@@ -144,10 +144,9 @@ try {
     Expect-Error 'format non pris en charge refusé avant Map 3D' 'import_gis' "{`"filePath`":$(Json $shp),`"format`":`"EDIGEO`",`"preview`":true}" '*non pris en charge*' -Write
 
     Write-Host "Autres formats (export puis réimport des 2 polygones)"
-    # Map 3D 2026 : TAB refusé (MAPINFO) ou plantage d'AutoCAD (MITAB), SDF refusé (ErrorBadInput sous FDO_SDF),
-    # GML relu avec ErrorOutOfMemory et plantage d'AutoCAD dans l'enchaînement complet : seul le MIF est exercé ici.
-    Write-Host "  AVERT TAB, GML et SDF non testés : instables dans Map 3D 2026 (refus ou plantage d'AutoCAD)" -ForegroundColor Yellow
-    foreach ($ext in @('mif')) {
+    # Map 3D 2026 : TAB refusé (MAPINFO) ou plantage d'AutoCAD (MITAB), SDF refusé (ErrorBadInput sous FDO_SDF).
+    Write-Host "  AVERT TAB et SDF non testés : refusés par Map 3D 2026 (et plantage d'AutoCAD en MITAB)" -ForegroundColor Yellow
+    foreach ($ext in @('mif', 'gml')) {
         $file = Join-Path $folder "carres.$ext"
         $r = Send 'export_gis' "{`"filePath`":$(Json $file),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`"}"
         $script:writes++

@@ -180,7 +180,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test-fdo.ps1         # connexio
 powershell -ExecutionPolicy Bypass -File scripts\test-network.ps1     # points topographiques et topologie de réseau, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-terrain.ps1     # MNT, courbes, analyses, images, GeoJSON/KML (Internet pour le MNT de l'IGN), puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-dxf.ps1         # données DXF brutes (LINE, INSERT avec XDATA, dictionnaire nommé), classes, modules, export DXF, puis annulation
-powershell -ExecutionPolicy Bypass -File scripts\test-gis.ps1         # fichiers SIG : export SHP/MIF, réimport, attributs, système, puis annulation (TAB, GML, SDF : voir les limites de Map 3D 2026)
+powershell -ExecutionPolicy Bypass -File scripts\test-gis.ps1         # fichiers SIG : export SHP/MIF/GML, réimport, attributs, système, puis annulation (TAB, SDF : voir les limites de Map 3D 2026)
 powershell -ExecutionPolicy Bypass -File scripts\test-batch.ps1       # outil de lot run_batch par le serveur MCP (stdio), puis annulation
 ```
 
@@ -697,7 +697,7 @@ Fichiers SIG (API ImportExport de Map 3D, comme `MAPIMPORT` et `MAPEXPORT`). Con
 - **Système de coordonnées** : à l'import, conversion seulement si le fichier et le dessin ont chacun un système ; sinon les coordonnées sont reprises telles quelles et un avertissement le dit. À l'export, le système du dessin est écrit dans le fichier.
 - **Colonnes** : en SHP, les noms de champs sont limités à 10 caractères (format dBase) ; un champ présent dans deux tables est préfixé par le nom de sa table.
 - **Annulation** : un import s'annule en une étape avec U ; un export ne modifie pas le dessin, mais AutoCAD en fait une étape d'annulation vide, comptée parmi celles du connecteur (outil `undo`). Requiert Map 3D (ou Civil 3D).
-- **Map 3D 2026** : SHP et MIF s'exportent et se réimportent normalement. TAB est refusé (nom `MAPINFO` inconnu, et l'export sous le nouveau nom `MITAB` fait planter AutoCAD), SDF est refusé, et un GML exporté ne se relit pas (`ErrorOutOfMemory`) ; dans un enchaînement d'exports, le GML a fait planter AutoCAD. Préférez SHP ou MIF, ou, pour le SDF, `connect_fdo` avec `insert_fdo_features`.
+- **Map 3D 2026** : SHP, MIF et GML s'exportent et se réimportent normalement (le GML est écrit en « tous les types dans un fichier », comme MAPEXPORT ; sinon il reste vide). TAB est refusé (nom `MAPINFO` inconnu, et l'export sous le nouveau nom `MITAB` fait planter AutoCAD) et SDF est refusé : préférez SHP, MIF ou GML, ou, pour le SDF, `connect_fdo` avec `insert_fdo_features`.
 
 Cadastre français (données ouvertes de l'IGN et Base Adresse Nationale) :
 
