@@ -302,35 +302,64 @@ internal static partial class DraftingTools
         var seedUcs = seed.TransformBy(editor.CurrentUserCoordinateSystem.Inverse());
         var loops = TraceBoundary(editor, seedUcs, islands);
         var viewAdjusted = false;
-        if (loops.Count == 0 && context.Database.TileMode)
+        if (context.Database.TileMode)
         {
-            // Point hors de la vue, ou objets trop petits à l'écran : on réessaie en vue de dessus sur l'étendue du
-            // dessin, puis sur des vues dix fois plus serrées à chaque essai autour du point (objets petits devant
-            // l'étendue, par exemple près de l'origine d'un dessin en Lambert 93). La vue de l'utilisateur est rétablie.
             using var saved = editor.GetCurrentView();
             try
             {
                 using var view = editor.GetCurrentView();
-                view.ViewDirection = Vector3d.ZAxis;
-                view.ViewTwist = 0;
-                ModelingTools.ZoomExtents(view, context.Database);
-                for (var attempt = 0; attempt < BoundaryZoomAttempts && loops.Count == 0; attempt++)
+                if (loops.Count == 0)
                 {
-                    if (attempt > 0)
+                    // Point hors de la vue, ou objets trop petits à l'écran : on réessaie en vue de dessus sur l'étendue du
+                    // dessin, puis sur des vues dix fois plus serrées à chaque essai autour du point (objets petits devant
+                    // l'étendue, par exemple près de l'origine d'un dessin en Lambert 93).
+                    view.ViewDirection = Vector3d.ZAxis;
+                    view.ViewTwist = 0;
+                    ModelingTools.ZoomExtents(view, context.Database);
+                    for (var attempt = 0; attempt < BoundaryZoomAttempts && loops.Count == 0; attempt++)
                     {
-                        view.CenterPoint = InView(view, seed);
-                        view.Width /= 10;
-                        view.Height /= 10;
-                    }
+                        if (attempt > 0)
+                        {
+                            view.CenterPoint = InView(view, seed);
+                            view.Width /= 10;
+                            view.Height /= 10;
+                        }
 
+                        editor.SetCurrentView(view);
+                        viewAdjusted = true;
+                        loops = TraceBoundary(editor, seedUcs, islands);
+                    }
+                }
+
+                // TraceBoundary suit les objets à la précision des pixels de la vue : une zone de quelques pixels donne
+                // un contour approximatif (sommets décalés, îlots perdus) plutôt qu'aucun. Tant que le contour trouvé
+                // est petit devant la vue, il est recalculé en vue de dessus centrée sur le point, dix fois plus large.
+                for (var refine = 0; refine < BoundaryRefinements && loops.Count > 0; refine++)
+                {
+                    var size = LoopSize(loops);
+                    if (size <= 0 || size * BoundaryMinViewFraction >= Math.Max(view.Width, view.Height))
+                        break;
+
+                    view.ViewDirection = Vector3d.ZAxis;
+                    view.ViewTwist = 0;
+                    view.CenterPoint = InView(view, seed);
+                    view.Width = size * 10;
+                    view.Height = size * 10;
                     editor.SetCurrentView(view);
                     viewAdjusted = true;
-                    loops = TraceBoundary(editor, seedUcs, islands);
+                    var refined = TraceBoundary(editor, seedUcs, islands);
+                    if (refined.Count == 0)
+                        break;
+                    foreach (var loop in loops)
+                        loop.Dispose();
+                    loops = refined;
                 }
             }
             finally
             {
-                editor.SetCurrentView(saved);
+                // La vue de l'utilisateur est rétablie.
+                if (viewAdjusted)
+                    editor.SetCurrentView(saved);
             }
         }
 
@@ -386,6 +415,25 @@ internal static partial class DraftingTools
 
     // Étendue du dessin, puis vues serrées d'un facteur 10 à 10 000 000 autour du point.
     private const int BoundaryZoomAttempts = 8;
+
+    // Un contour qui couvre moins d'un vingtième de la vue est recalculé dans une vue plus serrée, trois fois au plus.
+    private const int BoundaryMinViewFraction = 20;
+    private const int BoundaryRefinements = 3;
+
+    /// <summary>Plus grande dimension, dans le plan XY, du plus grand des contours.</summary>
+    private static double LoopSize(List<Curve> loops)
+    {
+        var outer = loops.OrderByDescending(CurveArea).First();
+        try
+        {
+            var extents = outer.GeometricExtents;
+            return Math.Max(extents.MaxPoint.X - extents.MinPoint.X, extents.MaxPoint.Y - extents.MinPoint.Y);
+        }
+        catch (AcException)
+        {
+            return 0;
+        }
+    }
 
     /// <summary>Point du dessin exprimé dans le repère de la vue (DCS), où se définit son centre.</summary>
     private static Point2d InView(ViewTableRecord view, Point3d point)

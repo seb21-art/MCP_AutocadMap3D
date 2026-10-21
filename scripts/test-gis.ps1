@@ -87,8 +87,11 @@ try {
 
     Write-Host "Export SHP"
     $shp = Join-Path $folder 'carres.shp'
-    Expect-Error 'sélection mélangée en auto' 'export_gis' "{`"filePath`":$(Json $shp),`"layers`":[`"MCP_GIS_TEST`"]}" '*mélange*'
-    $exp = Call 'export_gis' "{`"filePath`":$(Json $shp),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`"}"
+    # Courbes ouvertes et fermées ensemble : en auto, elles s'exportent toutes en lignes (fichier à part).
+    # export_gis passe par le contexte commande : chaque appel laisse une étape d'annulation (vide), comptée par -Write.
+    $mixed = Call 'export_gis' "{`"filePath`":$(Json (Join-Path $folder 'mixte.shp')),`"layers`":[`"MCP_GIS_TEST`"]}" -Write
+    if ($mixed) { Check 'courbes ouvertes et fermées en auto : lignes' "$($mixed.geometry)/$($mixed.entitiesExported)" 'Line/3' }
+    $exp = Call 'export_gis' "{`"filePath`":$(Json $shp),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`"}" -Write
     if ($exp) {
         Warnings $exp
         Check 'géométrie' $exp.geometry 'Polygon'
@@ -98,13 +101,13 @@ try {
         Check 'fichiers .shp .shx .dbf' ((@('.shp', '.shx', '.dbf') | Where-Object { Test-Path ([IO.Path]::ChangeExtension($shp, $_)) }).Count) 3
         if ($code) { Check '.prj écrit' (Test-Path ([IO.Path]::ChangeExtension($shp, '.prj'))) 'True' }
     }
-    Expect-Error 'fichier existant sans overwrite' 'export_gis' "{`"filePath`":$(Json $shp),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`"}" '*existe déjà*'
-    $again = Call 'export_gis' "{`"filePath`":$(Json $shp),`"handles`":[`"$($sq1.handle)`"],`"overwrite`":true}"
+    Expect-Error 'fichier existant sans overwrite' 'export_gis' "{`"filePath`":$(Json $shp),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`"}" '*existe déjà*' -Write
+    $again = Call 'export_gis' "{`"filePath`":$(Json $shp),`"handles`":[`"$($sq1.handle)`"],`"overwrite`":true}" -Write
     if ($again) { Check 'overwrite, par handle, géométrie auto' "$($again.replaced)/$($again.entitiesExported)/$($again.geometry)" 'True/1/Polygon' }
-    Call 'export_gis' "{`"filePath`":$(Json $shp),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`",`"overwrite`":true}" | Out-Null
-    $lines = Call 'export_gis' "{`"filePath`":$(Json (Join-Path $folder 'lignes.shp')),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"line`",`"attributes`":`"none`",`"dimension`":`"3d`"}"
-    if ($lines) { Check 'lignes : courbes ouvertes et fermées' "$($lines.entitiesExported)/$($lines.dimension)/$(@($lines.columns).Count)" '3/3D/0' }
-    Expect-Error 'extension inconnue' 'export_gis' "{`"filePath`":$(Json (Join-Path $folder 'x.abc')),`"layers`":[`"MCP_GIS_TEST`"]}" '*Format inconnu*'
+    Call 'export_gis' "{`"filePath`":$(Json $shp),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`",`"overwrite`":true}" -Write | Out-Null
+    $lines = Call 'export_gis' "{`"filePath`":$(Json (Join-Path $folder 'lignes.shp')),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"line`",`"attributes`":`"none`",`"dimension`":`"3d`"}" -Write
+    if ($lines) { Check 'lignes : courbes ouvertes et fermées' "$($lines.entitiesExported)/$($lines.dimension)/$(($lines.columns | Measure-Object).Count)" '3/3D/0' }
+    Expect-Error 'extension inconnue' 'export_gis' "{`"filePath`":$(Json (Join-Path $folder 'x.abc')),`"layers`":[`"MCP_GIS_TEST`"]}" '*Format inconnu*' -Write
 
     Write-Host "Aperçu et import SHP"
     $preview = Call 'import_gis' "{`"filePath`":$(Json $shp),`"preview`":true}" -Write
@@ -141,9 +144,12 @@ try {
     Expect-Error 'format non pris en charge refusé avant Map 3D' 'import_gis' "{`"filePath`":$(Json $shp),`"format`":`"EDIGEO`",`"preview`":true}" '*non pris en charge*' -Write
 
     Write-Host "Autres formats (export puis réimport des 2 polygones)"
-    foreach ($ext in @('mif', 'tab', 'gml', 'sdf')) {
+    # Map 3D 2026 : TAB refusé (MAPINFO) ou plantage d'AutoCAD (MITAB), SDF refusé (ErrorBadInput sous FDO_SDF).
+    Write-Host "  AVERT TAB et SDF non testés : refusés par Map 3D 2026 (et plantage d'AutoCAD en MITAB)" -ForegroundColor Yellow
+    foreach ($ext in @('mif', 'gml')) {
         $file = Join-Path $folder "carres.$ext"
         $r = Send 'export_gis' "{`"filePath`":$(Json $file),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`"}"
+        $script:writes++
         if (-not $r.ok) { Write-Host "  ÉCHEC export $ext : $($r.error.message)" -ForegroundColor Red; $script:failures++; continue }
         Warnings $r.result
         $script:writes++
@@ -156,7 +162,7 @@ try {
     if ($lambert) {
         Write-Host "Conversion de système de coordonnées (export en LL84, réimport en $code)"
         $ll = Join-Path $folder 'carres_ll84.shp'
-        $conv = Call 'export_gis' "{`"filePath`":$(Json $ll),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`",`"targetCoordinateSystem`":`"LL84`"}"
+        $conv = Call 'export_gis' "{`"filePath`":$(Json $ll),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`",`"targetCoordinateSystem`":`"LL84`"}" -Write
         if ($conv) { Warnings $conv; Check 'export converti' $conv.coordinateSystem "$code -> LL84" }
         $pre = Call 'import_gis' "{`"filePath`":$(Json $ll),`"preview`":true}" -Write
         if ($pre) { Check 'système lu dans le .prj' ($pre.inputLayers[0].sourceCoordinateSystem -ne $null -and $pre.inputLayers[0].sourceCoordinateSystem -ne '') 'True'; Write-Host "        $($pre.inputLayers[0].sourceCoordinateSystem) -> $($pre.inputLayers[0].conversion)" }

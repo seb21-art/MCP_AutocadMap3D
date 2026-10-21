@@ -108,6 +108,13 @@ try {
     $newB = Call 'new_drawing' "{`"filePath`":$(Json $pathB)}"
     Check 'nouveau dessin enregistré aussitôt : fichier' (Test-Path $pathB) True
     Check 'nouveau dessin enregistré aussitôt : nom' $newB.drawing.name 'mcp-test-b.dwg'
+    # Une autre application (Covadis écrit ses propriétés #CDwgName…) peut modifier un dessin quelques secondes après
+    # son ouverture : on lui en laisse le temps, puis on réenregistre B pour que la suite le trouve sans modification.
+    foreach ($k in 1..20) { if ((Find 'mcp-test-b.dwg').modified) { break }; Start-Sleep -Milliseconds 500 }
+    if ((Find 'mcp-test-b.dwg').modified) {
+        Call 'save_drawing' '{}' | Out-Null
+        Write-Host "  (mcp-test-b.dwg réenregistré : une autre application l'avait modifié à l'ouverture)"
+    }
     $count = (Drawings).count
     Expect-Error 'nouveau dessin sur un fichier existant' 'new_drawing' "{`"filePath`":$(Json $pathA)}"
     Check 'pas de dessin orphelin après le refus' (Drawings).count $count

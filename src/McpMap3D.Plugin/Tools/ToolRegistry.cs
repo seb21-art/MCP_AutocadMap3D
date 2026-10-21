@@ -293,5 +293,5 @@ internal sealed class ToolRegistry
             .Add("delete_fdo_features", DrawingAccess.Write, FdoEditTools.DeleteFeatures)
             .Add("set_fdo_layer_style", DrawingAccess.Write, FdoStyleTools.SetLayerStyle)
             .Add("import_gis", DrawingAccess.Write, GisTools.ImportGis)
-            .Add("export_gis", DrawingAccess.Document, GisTools.ExportGis);
+            .Add("export_gis", DrawingAccess.Write, GisTools.ExportGis);
 }

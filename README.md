@@ -24,7 +24,7 @@ Exemples de demandes à l'assistant :
 > drafting, 3D solids, STEP/IGES import, materials and lights, FDO connections, GIS file import/export (SHP, MapInfo, GML), dimensions, layouts and PDF, coordinate systems,
 > external references, Map 3D object data, French cadastre import). Documentation is in French.*
 
-**État du projet** : projet personnel, version 0.35.0, 199 outils. Il n'y a pas de version compilée à télécharger :
+**État du projet** : projet personnel, version 0.35.1, 199 outils. Il n'y a pas de version compilée à télécharger :
 l'installation compile les sources.
 
 > **Attention** : l'assistant modifie réellement le dessin. Travaillez sur une copie, et gardez en tête que chaque
@@ -180,7 +180,7 @@ powershell -ExecutionPolicy Bypass -File scripts\test-fdo.ps1         # connexio
 powershell -ExecutionPolicy Bypass -File scripts\test-network.ps1     # points topographiques et topologie de réseau, puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-terrain.ps1     # MNT, courbes, analyses, images, GeoJSON/KML (Internet pour le MNT de l'IGN), puis annulation
 powershell -ExecutionPolicy Bypass -File scripts\test-dxf.ps1         # données DXF brutes (LINE, INSERT avec XDATA, dictionnaire nommé), classes, modules, export DXF, puis annulation
-powershell -ExecutionPolicy Bypass -File scripts\test-gis.ps1         # fichiers SIG : export SHP/MIF/TAB/GML/SDF, réimport, attributs, système, puis annulation
+powershell -ExecutionPolicy Bypass -File scripts\test-gis.ps1         # fichiers SIG : export SHP/MIF/GML, réimport, attributs, système, puis annulation (TAB, SDF : voir les limites de Map 3D 2026)
 powershell -ExecutionPolicy Bypass -File scripts\test-batch.ps1       # outil de lot run_batch par le serveur MCP (stdio), puis annulation
 ```
 
@@ -696,7 +696,8 @@ Fichiers SIG (API ImportExport de Map 3D, comme `MAPIMPORT` et `MAPEXPORT`). Con
 - **Format** : déduit de l'extension (`.shp`, `.mif`, `.tab`, `.gml`, `.e00`, `.dgn`, `.sdf`), ou `format` (nom Map 3D : `SHP`, `MIF`, `MAPINFO`, `GML`, `E00`, `DGN`, `SDF`).
 - **Système de coordonnées** : à l'import, conversion seulement si le fichier et le dessin ont chacun un système ; sinon les coordonnées sont reprises telles quelles et un avertissement le dit. À l'export, le système du dessin est écrit dans le fichier.
 - **Colonnes** : en SHP, les noms de champs sont limités à 10 caractères (format dBase) ; un champ présent dans deux tables est préfixé par le nom de sa table.
-- **Annulation** : un import s'annule en une étape avec U ; un export ne modifie pas le dessin. Requiert Map 3D (ou Civil 3D).
+- **Annulation** : un import s'annule en une étape avec U ; un export ne modifie pas le dessin, mais AutoCAD en fait une étape d'annulation vide, comptée parmi celles du connecteur (outil `undo`). Requiert Map 3D (ou Civil 3D).
+- **Map 3D 2026** : SHP, MIF et GML s'exportent et se réimportent normalement (le GML est écrit en « tous les types dans un fichier », comme MAPEXPORT ; sinon il reste vide). TAB est refusé (nom `MAPINFO` inconnu, et l'export sous le nouveau nom `MITAB` fait planter AutoCAD) et SDF est refusé : préférez SHP, MIF ou GML, ou, pour le SDF, `connect_fdo` avec `insert_fdo_features`.
 
 Cadastre français (données ouvertes de l'IGN et Base Adresse Nationale) :
 

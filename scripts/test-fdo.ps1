@@ -44,7 +44,11 @@ try {
         throw "Le dessin ouvert est « $($info.fileName) », qui ne correspond pas à « $DrawingNameLike » : ouvrez une copie de test."
     }
     $startEntities = $info.modelSpaceEntityCount
-    "Départ : $startEntities objets"
+    # Map 3D donne au dessin sans système celui du premier calque FDO ajouté, et ce n'est pas annulé par U :
+    # le système de départ est rétabli à la fin.
+    function Cs { $s = Call 'get_coordinate_system'; if ($s.assigned) { "$($s.system.code)" } else { '' } }
+    $startCs = Cs
+    "Départ : $startEntities objets, système « $startCs »"
 
     Write-Host "Fournisseurs"
     $providers = Call 'list_fdo_providers'
@@ -252,6 +256,10 @@ try {
 
     $end = (Call 'get_drawing_info').modelSpaceEntityCount
     Check 'objets inchangés' $end $startEntities
+    if ((Cs) -ne $startCs) {
+        Call 'set_coordinate_system' "{`"code`":`"$startCs`",`"force`":true}" | Out-Null
+    }
+    Check 'système de départ rétabli' "$(Cs)" "$startCs"
 } finally {
     $client.Dispose()
 }
