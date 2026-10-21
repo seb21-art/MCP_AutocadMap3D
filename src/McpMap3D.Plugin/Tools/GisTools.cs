@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -39,15 +40,48 @@ internal static class GisTools
         [".sdf"] = "SDF",
     };
 
-    /// <summary>Fichiers qui accompagnent un fichier SIG de même nom (remplacés ensemble).</summary>
-    private static readonly string[] CompanionExtensions =
-        [".shp", ".shx", ".dbf", ".prj", ".cpg", ".sbn", ".sbx", ".qix", ".mif", ".mid", ".tab", ".dat", ".map", ".id", ".ind", ".xsd"];
+    /// <summary>
+    /// Fichiers qui accompagnent un fichier SIG de même nom, selon son format (remplacés ensemble) : carres.mif ne
+    /// remplace pas carres.shp, écrit dans le même dossier.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> CompanionExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".shp"] = [".shp", ".shx", ".dbf", ".prj", ".cpg", ".sbn", ".sbx", ".qix", ".idx"],
+        [".mif"] = [".mif", ".mid"],
+        [".tab"] = [".tab", ".dat", ".map", ".id", ".ind"],
+        [".gml"] = [".gml", ".xsd"],
+    };
 
     public static object ImportGis(ToolContext context, JsonElement? args) =>
         Guard(() => ImportCore(context, args), "import d'un fichier SIG");
 
-    public static object ExportGis(ToolContext context, JsonElement? args) =>
-        Guard(() => ExportCore(context, args), "export vers un fichier SIG");
+    /// <summary>
+    /// Map 3D enregistre chaque export comme une étape d'annulation vide : l'export passe par le contexte commande,
+    /// hors de la transaction de l'outil, pour que cette étape compte parmi celles du connecteur (sinon l'outil undo
+    /// se décalerait d'une étape à chaque export).
+    /// </summary>
+    public static object ExportGis(ToolContext context, JsonElement? args)
+    {
+        object? result = null;
+        ExceptionDispatchInfo? failure = null;
+        context.AfterCommit(() =>
+        {
+            try
+            {
+                result = Guard(() => ExportCore(context, args), "export vers un fichier SIG");
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+        });
+        context.ResultAfterCommit = () =>
+        {
+            failure?.Throw();
+            return result;
+        };
+        return new { };
+    }
 
     private static object Guard(Func<object> action, string operation)
     {
@@ -337,20 +371,22 @@ internal static class GisTools
 
         if (format == "SHP")
         {
+            // Même exportateur unique : l'option de l'export précédent (2D ou 3D) est remplacée, pas complétée, sinon
+            // les deux valeurs coexistent et Map 3D refuse l'export (ErrorBadInput).
             var options = exporter.GetDriverOptions();
-            var pair = new StringPair("FDO_SHAPE_DIMENSION", dimension);
-            if (!options.Contains(pair))
-                options.Add(pair);
+            for (var attempt = 0; attempt < 8 && options.HasName("FDO_SHAPE_DIMENSION"); attempt++)
+                options.Remove("FDO_SHAPE_DIMENSION");
+            options.Add(new StringPair("FDO_SHAPE_DIMENSION", dimension));
             exporter.SetDriverOptions(options);
         }
 
-        if (columns.Count > 0)
-        {
-            var mappings = exporter.GetExportDataMappings();
-            foreach (var column in columns)
-                mappings.Add($":{column.Field}@{column.Table}", column.Column);
-            exporter.SetExportDataMappings(mappings);
-        }
+        // L'exportateur de Map 3D est unique et garde les correspondances de l'export précédent : sans les vider, elles
+        // s'ajoutent en double (ou visent une table disparue) et Map 3D refuse les exports suivants (ErrorBadInput).
+        var mappings = exporter.GetExportDataMappings();
+        mappings.Clear();
+        foreach (var column in columns)
+            mappings.Add($":{column.Field}@{column.Table}", column.Column);
+        exporter.SetExportDataMappings(mappings);
 
         string? conversion = null;
         if (!string.IsNullOrWhiteSpace(targetCs) && !string.Equals(targetCs, drawingCs, StringComparison.OrdinalIgnoreCase)
@@ -771,7 +807,8 @@ internal static class GisTools
     {
         var folder = Path.GetDirectoryName(path)!;
         var stem = Path.GetFileNameWithoutExtension(path);
-        return CompanionExtensions.Select(extension => Path.Combine(folder, stem + extension)).Append(path).Distinct(StringComparer.OrdinalIgnoreCase);
+        var extensions = CompanionExtensions.GetValueOrDefault(Path.GetExtension(path)) ?? [];
+        return extensions.Select(extension => Path.Combine(folder, stem + extension)).Append(path).Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Dossier du dessin enregistré, sinon le dossier temporaire.</summary>

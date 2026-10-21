@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Test de non-régression des outils de présentation (Layouts) et fenêtres (Viewports).
 .DESCRIPTION
@@ -47,10 +47,10 @@ function CheckText([string]$label, $actual, $expected) {
 
 try {
     $info = Call 'get_drawing_info'
-    if ($info.file -notlike $DrawingNameLike) {
-        throw "Dessin « $($info.file) » : n'exécutez ce script que sur une copie (nom contenant '$DrawingNameLike')."
+    if ($info.fileName -notlike $DrawingNameLike) {
+        throw "Dessin « $($info.fileName) » : n'exécutez ce script que sur une copie (nom contenant '$DrawingNameLike')."
     }
-    Write-Host "Dessin : $($info.file) (espace $($info.currentSpace), calque $($info.currentLayer))`n" -ForegroundColor Cyan
+    Write-Host "Dessin : $($info.fileName) (espace $($info.currentSpace), calque $($info.currentLayer))`n" -ForegroundColor Cyan
 
     Write-Host "1. Consultation des présentations" -ForegroundColor White
     $list = Call 'list_layouts'

@@ -2,7 +2,7 @@
 
   <!-- Propriétés communes au plug-in et au serveur MCP. -->
   <PropertyGroup>
-    <Version>0.35.0</Version>
+    <Version>0.35.1</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
