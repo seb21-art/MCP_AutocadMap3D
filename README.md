@@ -43,7 +43,7 @@ Spécification pour les contributeurs (et pour Claude Code) : [CLAUDE.md](CLAUDE
 | --- | --- | --- | --- |
 | 2025 | R25.0 | .NET 8 | Pas encore prise en charge : le bundle ne se charge qu'à partir de R25.1, et l'installation ne compile pas pour 2025 |
 | 2026 | R25.1 | .NET 8 | Prise en charge, testée dans Civil 3D 2026 |
-| 2027 | R26.0 | .NET 10 | Prise en charge à la compilation, pas encore testée |
+| 2027 | R26.0 | .NET 10 | Prise en charge, testée dans Map 3D 2027 (anglais) : tous les scripts passent ; MIF et GML ne s'exportent pas (Map 3D 2027 refuse aussi dans MAPEXPORT), SHP oui |
 
 Les DLL ne sont pas compatibles d'une version à l'autre : `install.ps1` en compile une par version installée.
 
@@ -698,6 +698,7 @@ Fichiers SIG (API ImportExport de Map 3D, comme `MAPIMPORT` et `MAPEXPORT`). Con
 - **Colonnes** : en SHP, les noms de champs sont limités à 10 caractères (format dBase) ; un champ présent dans deux tables est préfixé par le nom de sa table.
 - **Annulation** : un import s'annule en une étape avec U ; un export ne modifie pas le dessin, mais AutoCAD en fait une étape d'annulation vide, comptée parmi celles du connecteur (outil `undo`). Requiert Map 3D (ou Civil 3D).
 - **Map 3D 2026** : SHP, MIF et GML s'exportent et se réimportent normalement (le GML est écrit en « tous les types dans un fichier », comme MAPEXPORT ; sinon il reste vide). TAB est refusé (nom `MAPINFO` inconnu, et l'export sous le nouveau nom `MITAB` fait planter AutoCAD) et SDF est refusé : préférez SHP, MIF ou GML, ou, pour le SDF, `connect_fdo` avec `insert_fdo_features`.
+- **Map 3D 2027** : SHP fonctionne ; MIF et GML n'écrivent aucun fichier, même dans un dessin neuf, et MAPEXPORT échoue aussi dans l'interface (« One or more objects in this drawing cannot be saved to the specified format ») : `export_gis` le signale en avertissement. Exportez en SHP.
 
 Cadastre français (données ouvertes de l'IGN et Base Adresse Nationale) :
 
