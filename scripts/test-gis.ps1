@@ -146,7 +146,13 @@ try {
     Write-Host "Autres formats (export puis réimport des 2 polygones)"
     # Map 3D 2026 : TAB refusé (MAPINFO) ou plantage d'AutoCAD (MITAB), SDF refusé (ErrorBadInput sous FDO_SDF).
     Write-Host "  AVERT TAB et SDF non testés : refusés par Map 3D 2026 (et plantage d'AutoCAD en MITAB)" -ForegroundColor Yellow
-    foreach ($ext in @('mif', 'gml')) {
+    # Map 3D 2027 n'écrit ni MIF ni GML, même par MAPEXPORT dans l'interface : seulement signalé.
+    $formats = @('mif', 'gml')
+    if ((Call 'ping').autoCad -like '26.*') {
+        Write-Host "  AVERT MIF et GML non testés : Map 3D 2027 ne les écrit pas (MAPEXPORT échoue aussi)" -ForegroundColor Yellow
+        $formats = @()
+    }
+    foreach ($ext in $formats) {
         $file = Join-Path $folder "carres.$ext"
         $r = Send 'export_gis' "{`"filePath`":$(Json $file),`"layers`":[`"MCP_GIS_TEST`"],`"geometry`":`"polygon`"}"
         $script:writes++
